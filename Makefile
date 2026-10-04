@@ -33,8 +33,11 @@ test-coolify:
 		fi; \
 		exit $$status
 
-# Builds Hindsight.app. Signs with HINDSIGHT_SIGNING_IDENTITY when it is set;
-# without it the build is unsigned, which cannot register a LaunchAgent.
+# Builds Hindsight.app, signed with the Developer ID identity named in
+# App/project.yml. `HINDSIGHT_UNSIGNED=1` builds without signing, which is the
+# only option on a machine without the certificate — such a build cannot
+# register the LaunchAgent, and says so.
+HINDSIGHT_TEAM_ID ?= SM26HBBKRL
 app: vendor
 	@command -v xcodegen >/dev/null 2>&1 || { \
 		echo "xcodegen is needed to generate the app project: brew install xcodegen"; \
@@ -43,7 +46,7 @@ app: vendor
 	cd App && xcodegen generate
 	cd App && xcodebuild -project Hindsight.xcodeproj -scheme Hindsight \
 		-configuration $(CONFIGURATION) -destination 'platform=macOS' \
-		$(if $(HINDSIGHT_SIGNING_IDENTITY),CODE_SIGN_IDENTITY="$(HINDSIGHT_SIGNING_IDENTITY)",CODE_SIGNING_ALLOWED=NO) \
+		$(if $(HINDSIGHT_UNSIGNED),CODE_SIGNING_ALLOWED=NO,DEVELOPMENT_TEAM=$(HINDSIGHT_TEAM_ID)) \
 		build
 
 lint:

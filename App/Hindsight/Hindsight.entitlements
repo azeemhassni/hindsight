@@ -6,11 +6,9 @@
 	     volumes the person chooses, and supervises a bundled server binary. -->
 	<key>com.apple.security.app-sandbox</key>
 	<false/>
-	<!-- Shared with the agent so both can read the repository passwords. -->
-	<key>keychain-access-groups</key>
-	<array>
-		<string>$(AppIdentifierPrefix)app.hindsight</string>
-	</array>
+	<!-- No keychain-access-groups on purpose. Sharing a group needs a
+	     provisioning profile, and the app does not need one: it never reads a
+	     secret. The agent holds them and does the work that needs them. -->
 	<key>com.apple.security.network.client</key>
 	<true/>
 </dict>

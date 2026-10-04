@@ -60,9 +60,9 @@ final class AgentConnection {
 
             // The agent holds the repository passwords and can drive restores,
             // so the peer is pinned to this team's signature.
-            if let team = ConnectionSecurity.teamIdentifierFromEnvironment {
+            if let team = ConnectionSecurity.teamIdentifier {
                 created.setCodeSigningRequirement(
-                    ConnectionSecurity.codeSigningRequirement(teamIdentifier: team)
+                    ConnectionSecurity.agentRequirement(teamIdentifier: team)
                 )
             }
 

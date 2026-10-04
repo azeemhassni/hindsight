@@ -1,62 +1,34 @@
 import AppKit
-import HindsightCatalog
 import HindsightCore
-import HindsightKeychain
-import HindsightUI
+import HindsightProtocol
 
 /// Saving the recovery kit.
 ///
-/// The kit is assembled in the app rather than the agent because saving it is
-/// something a person does, with a file dialog. It reads the passwords from the
-/// Keychain, which the app can do because it is signed with the same team as
-/// the agent and shares its keychain access group.
+/// The agent assembles it, because the passwords are its to read; the app puts
+/// the file where a person wants it, because that is a question only a person
+/// can answer.
 @MainActor
 enum RecoveryKitExport {
-    /// Returns whether a kit was actually written, so a caller can tell saving
-    /// it from cancelling the dialog — the difference between a server whose
-    /// backups can be read elsewhere and one whose cannot.
+    /// Saves a kit the agent assembled. Returns whether a file was actually
+    /// written, so a caller can tell saving it from cancelling the dialog —
+    /// the difference between a server whose backups can be read elsewhere and
+    /// one whose cannot.
     @discardableResult
-    static func run(
-        catalog: CatalogReader?,
-        secrets: any SecretStore,
-        onlyServer: String? = nil
-    ) async -> Bool {
-        guard let catalog else {
-            present(message: "No catalog is open yet, so there is nothing to export.")
-            return false
-        }
-
-        var kit: RecoveryKit
-        do {
-            // Off the main actor: reading each repository password goes to
-            // securityd, which can block — and a blocked main actor is a window
-            // that stops drawing.
-            kit = try await Task.detached(priority: .userInitiated) {
-                try build(catalog: catalog, secrets: secrets)
-            }.value
-        } catch {
-            present(message: "Could not assemble the recovery kit: \(error)")
-            return false
-        }
-
-        if let onlyServer {
-            kit.entries = kit.entries.filter { $0.serverID == onlyServer }
-            guard !kit.entries.isEmpty else {
-                present(message: "That server has no repository yet, so there is nothing to save.")
-                return false
-            }
-        }
+    static func save(_ report: RecoveryKitReport?) -> Bool {
+        guard let report else { return false }
 
         // A kit missing a password would look like the job was done while
         // leaving the backups unreadable, so it is refused rather than saved.
-        guard kit.isUsable else {
+        guard report.isUsable else {
             present(
-                message: """
-                Some repositories have no password in the Keychain \
-                (\(kit.missingPasswordServers.joined(separator: ", "))). Saving \
-                this kit would look like the job was done while leaving those \
-                backups unreadable.
-                """
+                message: report.serverCount == 0
+                    ? "That server has no repository yet, so there is nothing to save."
+                    : """
+                    Some repositories have no password in the Keychain \
+                    (\(report.missingPasswordServers.joined(separator: ", "))). Saving \
+                    this kit would look like the job was done while leaving those \
+                    backups unreadable.
+                    """
             )
             return false
         }
@@ -73,11 +45,11 @@ enum RecoveryKitExport {
         guard panel.runModal() == .OK, let url = panel.url else { return false }
 
         do {
-            try Data(kit.markdown().utf8).write(to: url, options: .atomic)
+            try Data(report.markdown.utf8).write(to: url, options: .atomic)
             // The machine-readable copy goes beside it, for a password manager
             // or another tool.
             let json = url.deletingPathExtension().appendingPathExtension("json")
-            try Data(kit.json().utf8).write(to: json, options: .atomic)
+            try Data(report.json.utf8).write(to: json, options: .atomic)
             // Owner-only: this file is as sensitive as the servers themselves.
             for file in [url, json] {
                 try? FileManager.default.setAttributes(
@@ -92,32 +64,6 @@ enum RecoveryKitExport {
         }
     }
 
-    nonisolated static func build(
-        catalog: CatalogReader,
-        secrets: any SecretStore
-    ) throws -> RecoveryKit {
-        let servers = try catalog.servers()
-        let entries = servers.map { server -> RecoveryKit.Entry in
-            let repository = try? catalog.repository(forServer: server.id)
-            let password = try? secrets.read(.repositoryPassword(server.id))
-            return RecoveryKit.Entry(
-                serverID: server.id.value,
-                serverName: server.name,
-                host: server.endpoint.host,
-                repositoryPath: repository?.path ?? "",
-                repositoryPassword: password?.value ?? "",
-                createdAt: repository?.createdAt ?? Date()
-            )
-        }
-
-        return RecoveryKit(
-            entries: entries,
-            resticVersion: (try? PinnedResticVersion.current) ?? "0.19.1",
-            hindsightVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
-                ?? "0.1.0"
-        )
-    }
-
     private static func present(message: String) {
         let alert = NSAlert()
         alert.messageText = "Recovery kit"
@@ -127,10 +73,4 @@ enum RecoveryKitExport {
     }
 }
 
-/// The restic version the kit should name, taken from the pinned table rather
-/// than written down twice.
-enum PinnedResticVersion {
-    static var current: String {
-        get throws { try HindsightUI.pinnedResticVersion() }
-    }
-}
+

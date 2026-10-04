@@ -12,9 +12,15 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    DEVELOPMENT_TEAM: ${HINDSIGHT_TEAM_ID}
+    # The team identifier is not a secret — it is readable in any signed binary
+    # — and both the keychain access group and the XPC requirement embed it, so
+    # it is checked in rather than passed through the environment.
+    DEVELOPMENT_TEAM: SM26HBBKRL
     CODE_SIGN_STYLE: Manual
     ENABLE_HARDENED_RUNTIME: YES
+    # `get-task-allow` is what lets a debugger attach, and notarisation refuses
+    # a Developer ID build that carries it.
+    CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
     # Not sandboxed: the app execs /usr/bin/ssh, writes repositories to
     # arbitrary volumes, and supervises a bundled server binary. See
     # docs/ARCHITECTURE.md §4.
@@ -39,8 +45,6 @@ targets:
         product: HindsightCatalog
       - package: Hindsight
         product: HindsightProtocol
-      - package: Hindsight
-        product: HindsightKeychain
       - target: hindsight-agent
         embed: true
         codeSign: true
@@ -77,8 +81,11 @@ targets:
             ditto "$binary" "$resources/$(basename "$binary")"
           done
 
+  # An app bundle rather than a bare tool, and deliberately so: the agent posts
+  # user notifications, and UserNotifications asserts without a bundle to
+  # attach to. LSUIElement keeps it out of the Dock and the menu bar.
   hindsight-agent:
-    type: tool
+    type: application
     platform: macOS
     sources:
       - path: Agent
@@ -87,7 +94,9 @@ targets:
         product: HindsightAgentKit
     settings:
       base:
+        PRODUCT_NAME: HindsightAgent
         PRODUCT_BUNDLE_IDENTIFIER: app.hindsight.agent
         INFOPLIST_FILE: Agent/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Agent/Agent.entitlements
         CODE_SIGN_IDENTITY: "Developer ID Application"
         SKIP_INSTALL: YES

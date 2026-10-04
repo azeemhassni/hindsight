@@ -1,8 +1,5 @@
 import AppKit
-import HindsightCatalog
 import HindsightCore
-import HindsightKeychain
-import HindsightRestic
 import HindsightUI
 import Quartz
 
@@ -58,6 +55,14 @@ enum DirectorySize {
     /// Walked rather than asked of the filesystem, because a repository is a
     /// directory of files with no size of its own. Cached for a short while so
     /// redrawing the window does not re-walk a large repository.
+    /// Walked off the main actor: a large repository takes a while, and the
+    /// window must keep drawing while it does.
+    static func bytesOffMainActor(at path: String) async -> Int64? {
+        await Task.detached(priority: .utility) {
+            bytes(at: URL(fileURLWithPath: path))
+        }.value
+    }
+
     static func bytes(at url: URL) -> Int64? {
         if let cached = cache.value(for: url.path) { return cached }
 

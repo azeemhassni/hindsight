@@ -1,8 +1,6 @@
 import HindsightCatalog
 import HindsightCore
-import HindsightKeychain
 import HindsightProtocol
-import HindsightRestic
 import HindsightUI
 import SwiftUI
 
@@ -49,15 +47,12 @@ struct HindsightApp: App {
                     Task { await preview(serverID: serverID, snapshot: snapshot, path: path) }
                 },
                 exportRecoveryKit: { serverID in
-                    await RecoveryKitExport.run(
-                        catalog: catalogStore.reader,
-                        secrets: Keychain(),
-                        onlyServer: serverID
-                    )
+                    await RecoveryKitExport.save(await model.recoveryKit(serverID: serverID))
                 },
                 chooseRepositoryDirectory: { RepositoryChooser.run() },
                 recoveryKits: recoveryKits,
-                sudoersResticPath: "/usr/local/bin/restic"
+                sudoersResticPath: "/usr/local/bin/restic",
+                onOpenLoginItems: { AgentInstallation.openLoginItemsSettings() }
             )
             .task { await start() }
         }
@@ -114,10 +109,47 @@ struct HindsightApp: App {
 
     @MainActor
     private func start() async {
+        // Registered before the first request: the agent is launched on demand
+        // by launchd, and it cannot be if launchd has never been told about it.
+        let installation = AgentInstallation.registerIfNeeded()
+        if let explanation = installation.explanation {
+            model.note(explanation, level: .warning)
+            model.agentNeedsApproval = installation == .needsApproval
+            // Said in the banner too: "the agent is not responding" is true but
+            // useless when the reason is that it was never registered.
+            if case .failed = installation {
+                model.connection = .unavailable(reason: explanation)
+            }
+        }
+
         model.send = { [connection] request in await connection.send(request) }
         connection.onEvent = { [model] event in model.apply(event) }
         catalogStore.open(at: catalogURL)
         await model.refresh()
+
+        // A registration that launchd does not actually have looks exactly like
+        // an agent that is not answering. Re-submitting it costs a moment and
+        // fixes the common causes: the bundle moved, or the job was removed by
+        // hand.
+        if case .unavailable = model.connection, installation.isUsable {
+            let repaired = await AgentInstallation.reregister()
+            if repaired.isUsable {
+                try? await Task.sleep(for: .seconds(1))
+                await model.refresh()
+            } else if let explanation = repaired.explanation {
+                model.connection = .unavailable(reason: explanation)
+            }
+        }
+
+        // An update replaces the agent inside the bundle, but launchd keeps
+        // running the old executable until it exits. Noticed here rather than
+        // left to confuse: the window would be talking to the previous build.
+        if let status = model.status,
+           !AgentInstallation.isRunningAgentCurrent(reportedIdentity: status.binaryIdentity) {
+            await model.restartAgent()
+            try? await Task.sleep(for: .seconds(2))
+            await model.refresh()
+        }
 
         // The agent owns live state, but history lives in the catalog. If the
         // agent cannot be reached, show what is known rather than an empty
@@ -167,45 +199,44 @@ struct HindsightApp: App {
         return (try? catalog.snapshots(forServer: id)) ?? []
     }
 
-    /// Where a server's repository is, for the readers below.
-    private func access(forServer serverID: String) -> RepositoryAccess? {
-        guard let catalog = catalogStore.reader,
-              let id = try? ServerID(validating: serverID),
-              let repository = try? catalog.repository(forServer: id)
-        else { return nil }
-        return RepositoryAccess(serverID: id, repositoryPath: repository.path)
-    }
-
-    /// Lists one directory of a snapshot, for the browser.
+    /// Lists one directory of a snapshot, through the agent.
     ///
-    /// Read here rather than proxied over XPC: reading a repository needs no
-    /// lock, restic handles concurrent readers, and sending a file tree over
-    /// XPC a directory at a time would be slower for no gain. The work itself
-    /// runs off the main actor — see `RepositoryAccess`.
+    /// The agent reads the repository because it holds the password; the app
+    /// holds none at all, which is why it needs no shared keychain group and
+    /// no provisioning profile.
     private func browse(
         serverID: String,
         snapshot: SnapshotID,
         path: String
     ) async -> [SnapshotTreeNode] {
-        guard let access = access(forServer: serverID) else { return [] }
-        do {
-            return try await access.children(ofSnapshot: snapshot, path: path)
-        } catch {
-            // Reported rather than swallowed: an empty tree and an unreadable
-            // repository look identical, and only one of them is fine.
-            model.note("Could not read this snapshot: \(error)", level: .error)
-            return []
+        let nodes = await model.snapshotDirectory(
+            serverID: serverID,
+            snapshotID: snapshot.value,
+            path: path
+        )
+        return nodes.map { node in
+            SnapshotTreeNode(
+                path: node.path,
+                name: node.name,
+                isDirectory: node.isDirectory,
+                sizeBytes: node.sizeBytes,
+                modifiedAt: node.modifiedAt,
+                permissions: node.permissions,
+                // Left unloaded so the browser asks for a directory only when
+                // somebody opens it.
+                children: node.isDirectory ? nil : []
+            )
         }
     }
 
     /// Shows one file out of a snapshot, without restoring it.
     private func preview(serverID: String, snapshot: SnapshotID, path: String) async {
-        guard let access = access(forServer: serverID) else { return }
-        do {
-            QuickLookPreview.show(try await access.extract(snapshot: snapshot, path: path))
-        } catch {
-            model.note("Could not read \(path) out of this snapshot: \(error)", level: .error)
-        }
+        guard let file = await model.extractFile(
+            serverID: serverID,
+            snapshotID: snapshot.value,
+            path: path
+        ) else { return }
+        QuickLookPreview.show(URL(fileURLWithPath: file))
     }
 
     /// Repository sizes are walked in the background and cached: the number is
@@ -214,7 +245,7 @@ struct HindsightApp: App {
         guard let catalog = catalogStore.reader, let servers = try? catalog.servers() else { return }
         for server in servers {
             guard let repository = try? catalog.repository(forServer: server.id) else { continue }
-            if let bytes = await RepositoryAccess.sizeInBytes(ofRepositoryAt: repository.path) {
+            if let bytes = await DirectorySize.bytesOffMainActor(at: repository.path) {
                 sizes.record(bytes, forServer: server.id.value)
             }
         }

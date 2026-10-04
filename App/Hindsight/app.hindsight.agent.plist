@@ -5,7 +5,7 @@
 	<key>Label</key>
 	<string>app.hindsight.agent</string>
 	<key>BundleProgram</key>
-	<string>Contents/Library/LaunchAgents/hindsight-agent</string>
+	<string>Contents/Library/LaunchAgents/HindsightAgent.app/Contents/MacOS/HindsightAgent</string>
 	<!-- On demand: the app's first XPC call starts the agent, and launchd keeps
 	     it alive afterwards so scheduled backups run with the app closed. -->
 	<key>MachServices</key>
