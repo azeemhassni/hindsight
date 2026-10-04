@@ -348,3 +348,16 @@ explain on hover why they are unavailable rather than only in the row.
 reports any button without one, so this does not quietly rot. Menu items and
 alert buttons are not listed: macOS never shows a tooltip for either, and their
 titles are already visible.
+
+## The window resizes like a window
+
+It did not. The scene took its size from the content, which made the window
+2151 points tall — taller than the screen — and refused every vertical resize:
+asking for 200 points or 3000 both left it at 2151. `windowResizability` is now
+`.contentMinSize`, so there is a floor and no ceiling, and the root view
+declares that floor itself (720 × 420). The panes inside were adjusted to fit
+within it, so the smallest window squeezes nothing.
+
+Measured rather than eyeballed, through the accessibility API: the window now
+shrinks to 720 × 472 on every tab and grows to fill the screen, and opens at
+1040 × 700.

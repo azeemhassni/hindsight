@@ -91,7 +91,7 @@ public struct RootView: View {
                 servers: model.servers,
                 runningJob: { model.runningJob(forServer: $0) }
             )
-            .navigationSplitViewColumnWidth(min: 220, ideal: 260)
+            .navigationSplitViewColumnWidth(min: 180, ideal: 260)
         } detail: {
             VStack(spacing: 0) {
                 if model.agentNeedsApproval {
@@ -107,6 +107,9 @@ public struct RootView: View {
                 detailContent
             }
         }
+        // A floor, not a shape: small enough to put beside something else,
+        // large enough that the sidebar and a pane still make sense.
+        .frame(minWidth: 720, minHeight: 420)
         .toolbar { toolbarContent }
         .task { await model.refresh() }
         .onChange(of: model.selectedServer?.id) { _, _ in

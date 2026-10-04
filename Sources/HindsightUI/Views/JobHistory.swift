@@ -29,9 +29,9 @@ public struct JobHistoryView: View {
     public var body: some View {
         HSplitView {
             jobList
-                .frame(minWidth: 260, idealWidth: 300, maxWidth: 420)
+                .frame(minWidth: 200, idealWidth: 300, maxWidth: 420)
             logPane
-                .frame(minWidth: 320)
+                .frame(minWidth: 280)
         }
         .task { await onReload() }
     }

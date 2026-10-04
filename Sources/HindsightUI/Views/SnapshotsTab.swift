@@ -32,9 +32,9 @@ public struct SnapshotsTab: View {
     public var body: some View {
         HSplitView {
             list
-                .frame(minWidth: 240, idealWidth: 280, maxWidth: 400)
+                .frame(minWidth: 200, idealWidth: 280, maxWidth: 400)
             browser
-                .frame(minWidth: 340)
+                .frame(minWidth: 280)
         }
     }
 

@@ -58,6 +58,10 @@ struct HindsightApp: App {
         }
         .defaultSize(width: 1040, height: 700)
         .defaultPosition(.center)
+        // Without this the window takes its height from the content and then
+        // refuses to be resized at all vertically, which is not how a Mac
+        // window behaves. `contentMinSize` keeps a floor and no ceiling.
+        .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(after: .newItem) {
                 Button("Back Up Now") {
