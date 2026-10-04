@@ -9,6 +9,7 @@ public enum ProcessError: Error, Hashable, Sendable, CustomStringConvertible {
     case launchFailed(command: String, reason: String)
     case exitedWithFailure(command: String, exit: ProcessExit, standardError: String)
     case cancelled(command: String)
+    case timedOut(command: String, after: Duration)
 
     public var description: String {
         switch self {
@@ -28,6 +29,8 @@ public enum ProcessError: Error, Hashable, Sendable, CustomStringConvertible {
             }
         case let .cancelled(command):
             "\(command) was cancelled."
+        case let .timedOut(command, after):
+            "\(command) did not finish within \(after) and was stopped."
         }
     }
 

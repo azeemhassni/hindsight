@@ -8,6 +8,7 @@ let package = Package(
         .library(name: "HindsightCore", targets: ["HindsightCore"]),
         .library(name: "HindsightProcess", targets: ["HindsightProcess"]),
         .library(name: "HindsightRestic", targets: ["HindsightRestic"]),
+        .library(name: "HindsightSSH", targets: ["HindsightSSH"]),
     ],
     targets: [
         .target(
@@ -24,6 +25,11 @@ let package = Package(
             dependencies: ["HindsightCore", "HindsightProcess"],
             swiftSettings: .common
         ),
+        .target(
+            name: "HindsightSSH",
+            dependencies: ["HindsightCore", "HindsightProcess", "HindsightRestic"],
+            swiftSettings: .common
+        ),
         .testTarget(
             name: "HindsightCoreTests",
             dependencies: ["HindsightCore"],
@@ -37,6 +43,11 @@ let package = Package(
         .testTarget(
             name: "HindsightResticTests",
             dependencies: ["HindsightRestic"],
+            swiftSettings: .common
+        ),
+        .testTarget(
+            name: "HindsightSSHTests",
+            dependencies: ["HindsightSSH"],
             swiftSettings: .common
         ),
     ],

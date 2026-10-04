@@ -34,12 +34,19 @@ public struct ProcessRunner: Sendable {
 
             let redactor = command.redactor
             let description = command.redactedDescription
-            let session = ProcessSession(command: command)
-            let start = ContinuousClock.now
+            let session = ProcessSession(command: command, maximumLineLength: maximumLineLength)
 
             let pid: Int32
             do {
-                pid = try session.launch()
+                pid = try session.start(
+                    onLine: { stream, line in
+                        continuation.yield(.line(stream, redactor.redact(line)))
+                    },
+                    onExit: { status in
+                        continuation.yield(.exited(status))
+                        continuation.finish()
+                    }
+                )
             } catch {
                 continuation.finish(
                     throwing: ProcessError.launchFailed(
@@ -52,38 +59,12 @@ public struct ProcessRunner: Sendable {
 
             continuation.yield(.started(pid: pid))
 
-            let queue = DispatchQueue(
-                label: "dev.hindsight.process.\(pid)",
-                attributes: .concurrent
-            )
-            let readers = DispatchGroup()
-
-            queue.async { session.writeStandardInput() }
-
-            for stream in ProcessStream.allCases {
-                queue.async(group: readers) {
-                    Self.pump(
-                        session: session,
-                        stream: stream,
-                        redactor: redactor,
-                        maximumLineLength: maximumLineLength,
-                        continuation: continuation
-                    )
-                }
-            }
-
-            // Both pipes are at end of file here, so the child has closed them
-            // and `waitUntilExit` returns promptly. Waiting for the readers
-            // first is what guarantees every line precedes `.exited`.
-            readers.notify(queue: queue) {
-                continuation.yield(.exited(session.waitForExit(startedAt: start)))
-                continuation.finish()
-            }
-
             continuation.onTermination = { reason in
                 guard case .cancelled = reason else { return }
                 session.terminate()
-                queue.asyncAfter(deadline: .now() + grace.timeInterval) { session.kill() }
+                DispatchQueue.global().asyncAfter(deadline: .now() + grace.timeInterval) {
+                    session.kill()
+                }
             }
         }
     }
@@ -92,11 +73,52 @@ public struct ProcessRunner: Sendable {
     ///
     /// `allowedExitCodes` exists because several commands Hindsight runs report
     /// a legitimate answer through a non-zero status, `test -f` among them.
+    ///
+    /// `timeout` matters more than it looks: a wedged ssh control socket, or a
+    /// remote command that never returns, would otherwise hang a scheduled job
+    /// forever with nothing in the log to explain it.
     @discardableResult
     public func run(
         _ command: Command,
         allowedExitCodes: Set<Int32> = [0],
-        maximumCapturedBytes: Int = ProcessRunner.defaultMaximumCapturedBytes
+        maximumCapturedBytes: Int = ProcessRunner.defaultMaximumCapturedBytes,
+        timeout: Duration? = nil
+    ) async throws -> ProcessResult {
+        guard let timeout else {
+            return try await collect(
+                command,
+                allowedExitCodes: allowedExitCodes,
+                maximumCapturedBytes: maximumCapturedBytes
+            )
+        }
+
+        do {
+            return try await withThrowingTaskGroup(of: ProcessResult.self) { group in
+                group.addTask {
+                    try await self.collect(
+                        command,
+                        allowedExitCodes: allowedExitCodes,
+                        maximumCapturedBytes: maximumCapturedBytes
+                    )
+                }
+                group.addTask {
+                    try await Task.sleep(for: timeout)
+                    throw ProcessError.timedOut(command: command.redactedDescription, after: timeout)
+                }
+                let result = try await group.next()!
+                group.cancelAll()
+                return result
+            }
+        } catch let error as ProcessError {
+            throw error
+        }
+    }
+
+    @discardableResult
+    private func collect(
+        _ command: Command,
+        allowedExitCodes: Set<Int32>,
+        maximumCapturedBytes: Int
     ) async throws -> ProcessResult {
         var captured: [ProcessStream: String] = [.standardOutput: "", .standardError: ""]
         var capturedBytes = 0
@@ -147,28 +169,6 @@ public struct ProcessRunner: Sendable {
         )
     }
 
-    private static func pump(
-        session: ProcessSession,
-        stream: ProcessStream,
-        redactor: SecretRedactor,
-        maximumLineLength: Int,
-        continuation: AsyncThrowingStream<ProcessEvent, any Error>.Continuation
-    ) {
-        let handle = session.handle(for: stream)
-        var splitter = LineSplitter(maximumLineLength: maximumLineLength)
-
-        while true {
-            let chunk = handle.availableData
-            if chunk.isEmpty { break }
-            for line in splitter.append(chunk) {
-                continuation.yield(.line(stream, redactor.redact(line)))
-            }
-        }
-
-        if let trailing = splitter.flush() {
-            continuation.yield(.line(stream, redactor.redact(trailing)))
-        }
-    }
 }
 
 extension Duration {

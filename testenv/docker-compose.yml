@@ -1,0 +1,41 @@
+name: hindsight-testenv
+
+services:
+  sshd:
+    build: ./sshd
+    environment:
+      HINDSIGHT_TEST_PUBKEY: ${HINDSIGHT_TEST_PUBKEY:?run scripts/testenv.sh up}
+    ports:
+      - "127.0.0.1:2222:22"
+    healthcheck:
+      test: ["CMD", "sh", "-c", "ss -ltn | grep -q ':22'"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: hindsight
+      POSTGRES_USER: hindsight
+      POSTGRES_DB: hindsight_test
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hindsight"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: hindsight
+      MYSQL_DATABASE: hindsight_test
+    ports:
+      - "127.0.0.1:53306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-phindsight"]
+      interval: 3s
+      timeout: 3s
+      retries: 30

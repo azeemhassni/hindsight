@@ -6,3 +6,4 @@ DerivedData/
 vendor/bin/
 vendor/cache/
 .DS_Store
+testenv/.keys/

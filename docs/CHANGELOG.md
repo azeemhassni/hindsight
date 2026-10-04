@@ -19,3 +19,20 @@
   fails closed on a mismatch.
 - The pinned table is generated from `vendor/checksums.txt` so the digests the
   app enforces cannot drift from the ones the vendoring script enforces.
+
+## M2 — SSH transport
+
+- Managed ssh configuration, `known_hosts` pinning with explicit first-connect
+  confirmation, and a hard failure on any later key change. The user's own
+  `~/.ssh` is never read or written.
+- Connection sharing with short control tokens, recovery from a stale control
+  socket, and reverse port forwards whose remote port the server chooses.
+- Remote commands that carry secrets over stdin rather than in `argv`, with
+  quoting verified against a real shell.
+- One-round-trip fact probe: OS, architecture, sudo, `nice`/`ionice`, Docker,
+  Coolify, mounts, listening ports, and the test marker.
+- Pinned restic installed and verified on the server before every run.
+- The destructive-operation guard: a local address **and** the marker file.
+- A local Docker environment (`scripts/testenv.sh`) with sshd, Postgres, and
+  MySQL, and integration tests that only ever talk to 127.0.0.1.
+- Process layer: timeouts, and event-driven reads in place of blocking ones.

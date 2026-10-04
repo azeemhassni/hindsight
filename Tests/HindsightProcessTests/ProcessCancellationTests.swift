@@ -69,3 +69,38 @@ struct ProcessCancellationTests {
         }
     }
 }
+
+@Suite("Process timeouts")
+struct ProcessTimeoutTests {
+    @Test("stops a command that overruns its timeout", .timeLimit(.minutes(1)))
+    func stopsOverrunningCommand() async throws {
+        let runner = ProcessRunner(terminationGracePeriod: .milliseconds(200))
+        let start = ContinuousClock.now
+
+        do {
+            _ = try await runner.run(
+                Command(path: "/bin/sleep", arguments: ["120"]),
+                timeout: .milliseconds(500)
+            )
+            Issue.record("expected a timeout")
+        } catch let error as ProcessError {
+            guard case let .timedOut(_, after) = error else {
+                Issue.record("unexpected error \(error)")
+                return
+            }
+            #expect(after == .milliseconds(500))
+            #expect("\(error)".contains("did not finish"))
+        }
+
+        #expect(ContinuousClock.now - start < .seconds(10))
+    }
+
+    @Test("leaves a command that finishes in time alone")
+    func allowsFastCommand() async throws {
+        let result = try await ProcessRunner().run(
+            Command(path: "/bin/echo", arguments: ["quick"]),
+            timeout: .seconds(30)
+        )
+        #expect(result.standardOutput == "quick")
+    }
+}

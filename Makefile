@@ -14,8 +14,10 @@ test:
 	$(SWIFT) test
 
 test-integration:
-	@echo "The integration environment arrives with the SSH transport in M2."
-	@exit 1
+	./scripts/testenv.sh up
+	set -a; eval "$$(./scripts/testenv.sh env)"; set +a; \
+		HINDSIGHT_ALLOW_DESTRUCTIVE_TESTS=1 $(SWIFT) test; \
+		status=$$?; ./scripts/testenv.sh down; exit $$status
 
 lint:
 	@if command -v swiftformat >/dev/null 2>&1; then \
