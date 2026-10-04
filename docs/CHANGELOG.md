@@ -212,3 +212,33 @@ a window shows the history it knows rather than nothing, and
 `HINDSIGHT_CATALOG_PATH` lets the interface be run against a catalog other than
 the installed one. `hindsight-demo-catalog` writes a catalog with plausible
 history for exactly that.
+
+## Wiring it all together
+
+Everything the engine could do is now reachable:
+
+- Scheduled backups dump every database they find, each into its own tagged
+  snapshot, and a dump that fails becomes a warning on an otherwise good
+  backup rather than a silent omission.
+- Maintenance runs on its own half-hourly sweep: retention and pruning daily,
+  one slice of the read-data rotation weekly, with the rotation advancing only
+  on success so a failed slice is retried rather than skipped.
+- Restore is reachable from the window. The preview takes the safety snapshot
+  and is fetched under the server's real hostname, the confirm button needs the
+  hostname typed, and the **agent** re-checks it rather than trusting the app.
+- Per-resource Coolify backup captures volumes at their real location on disk,
+  the generated compose file, and a logical dump for database resources.
+- Settings save as a sparse update, so opening the form cannot reset a field
+  somebody set elsewhere, and a stored Coolify token is never read back into a
+  text field just to display it.
+- Onboarding, the snapshot browser, notifications and the recovery kit are all
+  connected.
+
+Two bugs the wiring exposed: a server id derived from a name could collide with
+an existing one and overwrite that server, and making the tunnel's session body
+`@Sendable` revealed mutable state being shared across an isolation boundary in
+the backup engine.
+
+The slow tests were trimmed as promised: the retention corpus is built once per
+suite rather than per test, and the progress fixture is 200 MB instead of 600.
+The retention suite went from 128 seconds to 67.

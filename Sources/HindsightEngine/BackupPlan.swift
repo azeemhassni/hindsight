@@ -13,6 +13,13 @@ public struct BackupPlan: Sendable {
     public var repositoryPassword: Secret
     public var extraTags: [SnapshotTag]
     public var includeMetadata: Bool
+    /// Copying a live database file is not a backup, so every database found on
+    /// the server also gets a logical dump as its own snapshot.
+    public var includeDatabaseDumps: Bool
+    /// Credentials for databases that cannot be reached through `docker exec`,
+    /// keyed by `DatabaseTarget.identifier`. A container supplies its own
+    /// through its environment and needs no entry here.
+    public var databaseCredentials: [String: Secret]
 
     public init(
         server: Server,
@@ -21,7 +28,9 @@ public struct BackupPlan: Sendable {
         repositoryRoot: URL,
         repositoryPassword: Secret,
         extraTags: [SnapshotTag] = [],
-        includeMetadata: Bool = true
+        includeMetadata: Bool = true,
+        includeDatabaseDumps: Bool = true,
+        databaseCredentials: [String: Secret] = [:]
     ) {
         self.server = server
         self.destination = destination
@@ -30,6 +39,8 @@ public struct BackupPlan: Sendable {
         self.repositoryPassword = repositoryPassword
         self.extraTags = extraTags
         self.includeMetadata = includeMetadata
+        self.includeDatabaseDumps = includeDatabaseDumps
+        self.databaseCredentials = databaseCredentials
     }
 
     public var repositoryURL: URL {
@@ -90,6 +101,7 @@ public enum BackupPhase: String, Sendable, Hashable {
     case openingTunnel
     case collectingMetadata
     case backingUp
+    case dumpingDatabases
     case recording
     case finishing
 }
@@ -116,6 +128,7 @@ public struct BackupProgress: Sendable, Hashable {
 
 public enum BackupEvent: Sendable {
     case phase(BackupPhase)
+    case databaseDumped(DatabaseDumpResult)
     case message(String)
     case warning(String)
     case progress(BackupProgress)
@@ -126,6 +139,7 @@ public enum BackupEvent: Sendable {
 public struct BackupOutcome: Sendable, Hashable {
     public var filesystemSnapshot: Snapshot?
     public var metadataSnapshot: Snapshot?
+    public var databaseDumps: [DatabaseDumpResult] = []
     public var filesNew: Int
     public var filesChanged: Int
     public var filesUnmodified: Int

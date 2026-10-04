@@ -1,6 +1,8 @@
 import HindsightCatalog
 import HindsightCore
+import HindsightKeychain
 import HindsightProtocol
+import HindsightRestic
 import HindsightUI
 import SwiftUI
 
@@ -21,7 +23,10 @@ struct HindsightApp: App {
             RootView(
                 model: model,
                 snapshots: { serverID in snapshots(forServer: serverID) },
-                repositorySize: { _ in nil }
+                repositorySize: { _ in nil },
+                exportRecoveryKit: {
+                    RecoveryKitExport.run(catalog: catalog, secrets: Keychain())
+                }
             )
             .task { await start() }
         }
@@ -112,5 +117,46 @@ struct HindsightApp: App {
     private func snapshots(forServer serverID: String) -> [Snapshot] {
         guard let catalog, let id = try? ServerID(validating: serverID) else { return [] }
         return (try? catalog.snapshots(forServer: id)) ?? []
+    }
+
+    /// Lists one directory of a snapshot, for the browser.
+    ///
+    /// Run here rather than through the agent: reading a repository needs no
+    /// lock, restic handles concurrent readers, and sending a file tree over
+    /// XPC a directory at a time would be slower for no gain.
+    private func browse(
+        serverID: String,
+        snapshot: SnapshotID,
+        path: String
+    ) async -> [SnapshotTreeNode] {
+        guard let catalog,
+              let id = try? ServerID(validating: serverID),
+              let repository = try? catalog.repository(forServer: id),
+              let executable = try? BinaryStore.bundled()
+                  .verifiedURL(for: try PinnedBinaries.hostRestic),
+              let password = try? Keychain().read(.repositoryPassword(id))
+        else { return [] }
+
+        let client = ResticClient(
+            executable: executable,
+            location: .local(URL(fileURLWithPath: repository.path)),
+            password: password
+        )
+        guard let nodes = try? await client.children(ofSnapshot: snapshot, path: path) else {
+            return []
+        }
+        return nodes.map { node in
+            SnapshotTreeNode(
+                path: node.path,
+                name: node.name,
+                isDirectory: node.isDirectory,
+                sizeBytes: node.size,
+                modifiedAt: node.mtime,
+                permissions: node.permissions,
+                // Left unloaded so the browser asks for a directory only when
+                // somebody opens it.
+                children: node.isDirectory ? nil : []
+            )
+        }
     }
 }

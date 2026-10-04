@@ -388,3 +388,40 @@ extension CatalogReader {
         }
     }
 }
+
+extension Catalog {
+    /// Replaces the exclude patterns a person added, leaving the profile's own
+    /// defaults alone — those live in code, not in the catalog, so that a
+    /// Hindsight upgrade can improve them.
+    public func replaceUserExcludes(_ patterns: [String], forServer id: ServerID) throws {
+        try write { database in
+            try database.execute(
+                sql: "DELETE FROM pathRule WHERE serverId = ? AND source = 'user' AND kind = 'exclude'",
+                arguments: [id.value]
+            )
+            for pattern in patterns where !pattern.trimmingCharacters(in: .whitespaces).isEmpty {
+                try database.execute(
+                    sql: """
+                    INSERT INTO pathRule (serverId, kind, pattern, source)
+                    VALUES (?, 'exclude', ?, 'user')
+                    """,
+                    arguments: [id.value, pattern]
+                )
+            }
+        }
+    }
+
+    public func userExcludes(forServer id: ServerID) throws -> [String] {
+        try read { database in
+            try String.fetchAll(
+                database,
+                sql: """
+                SELECT pattern FROM pathRule
+                WHERE serverId = ? AND source = 'user' AND kind = 'exclude'
+                ORDER BY id
+                """,
+                arguments: [id.value]
+            )
+        }
+    }
+}

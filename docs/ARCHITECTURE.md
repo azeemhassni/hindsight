@@ -794,40 +794,49 @@ Resolved, 2026-10-04.
 
 ---
 
-## 20. What is built, and what is not yet wired
+## 20. What is built, and what is wired
 
-The engine is complete and verified against real servers. The app is a working
-shell over it, and some of the wiring between the two is still missing. Stated
-plainly here rather than left to be discovered.
+The engine is complete and verified against real servers; the interface is
+wired to it. What remains unproven is listed honestly at the end.
 
 **Working end to end, with tests against real targets**
 
 - Backups: SSH transport, host-key pinning, append-only rest-server over a
-  reverse tunnel, live progress, metadata snapshots, incremental verification.
+  reverse tunnel, live progress, metadata snapshots, and logical database
+  dumps inside the same run.
 - Retention and integrity: a policy engine that agrees with restic exactly,
-  prune, check, the read-data rotation, corruption detection.
+  prune, check, the read-data rotation, corruption detection, and a
+  maintenance sweep that runs them on their own cadence.
 - Restore: planning, mode availability with reasons, safety snapshot, exact
-  preview, byte-for-byte restore, undo, staged swap, hard exclusions.
-- Database dumps: detection, logical dumps streamed into restic, failure
-  reporting.
+  preview, byte-for-byte restore, undo, staged swap, hard exclusions — reachable
+  from the window, with the hostname confirmation re-checked by the agent
+  rather than trusted from the app.
 - Coolify: discovery from labels and from the API, agreeing on the same
-  install; the instance plan checked against a live install.
-- Second copy, scheduling, the catalog, the Keychain, and the agent's XPC
-  surface.
+  install; the instance plan checked against a live install; per-resource
+  capture of volumes, generated compose files and database dumps, tagged so a
+  resource's history stands alone.
+- Second copy, scheduling, the catalog, the Keychain, the agent's XPC surface,
+  onboarding, settings persistence, notifications, the snapshot browser, and
+  the recovery kit.
 
-**Built and tested, but not yet called from a running app**
+**What the interface drives**
 
-| Piece | State |
+| Piece | How |
 |---|---|
-| Database dumps in a scheduled backup | `DatabaseBackup` works and is tested; `BackupEngine.run` does not yet call it, so a scheduled backup captures files and metadata but not dumps. |
-| Maintenance scheduling | `MaintenanceEngine` works; the agent answers `runMaintenance` and `checkIntegrity` with "not available yet" rather than pretending. |
-| Restore from the interface | The planner, executor and wizard all exist and are tested; there is no XPC request that runs a restore, so restores are not yet reachable from the app. |
-| Per-resource Coolify backup | Discovery and tagging work; no job yet backs up a single resource. |
-| Snapshot browser in the app | The tree, search and diff logic are tested; the app does not yet feed them from `restic ls`. |
-| Settings persistence | The settings form is built; its bindings are not yet written to the catalog. |
-| Onboarding actions | The state machine is tested; the app does not yet implement the per-step actions behind it. |
-| Notifications | Not implemented. |
-| Recovery kit export from the UI | The kit is generated and tested; the save dialog is not wired. |
+| Backup now | `backUpNow` over XPC, queued per repository |
+| Restore | `previewRestore` then `runRestore`; the preview takes the safety snapshot, and the agent re-checks the typed hostname |
+| Maintenance | `runMaintenance` / `checkIntegrity`, plus the agent's own half-hourly sweep |
+| Settings | one sparse `updateServerSettings`; untouched fields stay unset so saving one cannot reset another |
+| Onboarding | `scanHostKey`, `trustHostKey`, `probeServer`, `addServer` — separate because each fails on its own |
+| Snapshot browser | read directly from the local repository, one directory at a time; reads need no lock |
+| Recovery kit | assembled in the app from the catalog and the Keychain, saved through a file dialog, refused if any password is missing |
+| Notifications | failures, integrity problems and finished restores only — never routine successes |
 
-None of this is hidden behind a stub that reports success. Where a path is not
-implemented, it says so.
+**Still unproven**
+
+- Restoring a Coolify instance end to end into a fresh virtual machine.
+- Cross-server migration of a resource.
+- Application and service resource labels, observed rather than inferred; see
+  `docs/COOLIFY.md` §10 for why and what it needs.
+- The agent as an actual `SMAppService` LaunchAgent, which needs a Developer ID
+  to sign with.

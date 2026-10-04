@@ -1,4 +1,5 @@
 import Foundation
+import HindsightCore
 import Testing
 @testable import HindsightRestic
 
@@ -10,6 +11,9 @@ private func repositoryRoot(file: StaticString = #filePath) -> URL {
 }
 
 private var vendorBinDirectory: URL { repositoryRoot().appendingPathComponent("vendor/bin") }
+
+/// Visible to the browsing suite below as well.
+private let vendorBin = repositoryRoot().appendingPathComponent("vendor/bin")
 
 private var hasVendoredBinaries: Bool {
     FileManager.default.fileExists(atPath: vendorBinDirectory.path)
@@ -179,5 +183,81 @@ struct BinaryStoreTests {
                 try store.verifiedURL(for: binary)
             }
         }
+    }
+}
+
+@Suite("Snapshot browsing", .timeLimit(.minutes(5)), .serialized)
+struct SnapshotBrowsingTests {
+    static var resticAvailable: Bool {
+        (try? BinaryStore(directory: vendorBin)
+            .verifiedURL(for: try PinnedBinaries.hostRestic)) != nil
+    }
+
+    /// A repository with a small tree, so the browser's one-level listing can
+    /// be checked against something real.
+    static func makeRepository() async throws -> (ResticClient, SnapshotID) {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("hindsight-browse-\(UUID().uuidString)")
+        let data = root.appendingPathComponent("data")
+        try FileManager.default.createDirectory(
+            at: data.appendingPathComponent("nested/deeper"),
+            withIntermediateDirectories: true
+        )
+        try Data("one\n".utf8).write(to: data.appendingPathComponent("one.txt"))
+        try Data("two\n".utf8).write(to: data.appendingPathComponent("two.txt"))
+        try Data("leaf\n".utf8).write(to: data.appendingPathComponent("nested/leaf.txt"))
+        try Data("deep\n".utf8).write(to: data.appendingPathComponent("nested/deeper/deep.txt"))
+
+        let password = Secret(label: "repo", value: "browse-test")
+        let client = ResticClient(
+            executable: try BinaryStore(directory: vendorBin)
+                .verifiedURL(for: try PinnedBinaries.hostRestic),
+            location: .local(root.appendingPathComponent("repo")),
+            password: password
+        )
+        _ = try await client.initializeIfNeeded()
+        try await client.run(["backup", data.path], operation: "backup")
+
+        let snapshot = try #require(try await client.snapshots().first)
+        return (client, SnapshotID(unchecked: snapshot.id))
+    }
+
+    @Test("lists one directory at a time, not the whole tree", .enabled(if: resticAvailable))
+    func listsOneLevel() async throws {
+        let (client, snapshot) = try await Self.makeRepository()
+
+        // Walk down from the root, which is what the browser does as folders
+        // are opened.
+        var path = "/"
+        var guard_ = 0
+        while guard_ < 10 {
+            let children = try await client.children(ofSnapshot: snapshot, path: path)
+            guard let next = children.first(where: \.isDirectory), children.count == 1 else { break }
+            path = next.path
+            guard_ += 1
+        }
+
+        let children = try await client.children(ofSnapshot: snapshot, path: path)
+        #expect(children.map(\.name).sorted() == ["nested", "one.txt", "two.txt"])
+        // Directories first.
+        #expect(children.first?.isDirectory == true)
+        // And nothing from deeper in the tree.
+        #expect(!children.contains { $0.name == "leaf.txt" })
+
+        let nested = try #require(children.first { $0.name == "nested" })
+        let grandchildren = try await client.children(ofSnapshot: snapshot, path: nested.path)
+        #expect(grandchildren.map(\.name).sorted() == ["deeper", "leaf.txt"])
+    }
+
+    @Test("writes a single file out of a snapshot", .enabled(if: resticAvailable))
+    func dumpsOneFile() async throws {
+        let (client, snapshot) = try await Self.makeRepository()
+        let nodes = try await client.list(snapshot: snapshot)
+        let file = try #require(nodes.first { $0.name == "one.txt" })
+
+        let destination = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("hindsight-dump-\(UUID().uuidString)")
+        try await client.dumpFile(snapshot: snapshot, path: file.path, to: destination)
+        #expect(try String(contentsOf: destination, encoding: .utf8) == "one")
     }
 }

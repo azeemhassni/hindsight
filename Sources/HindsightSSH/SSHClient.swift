@@ -383,7 +383,7 @@ public struct SSHClient: Sendable {
     public func withReverseForward<T: Sendable>(
         toLocalPort localPort: Int,
         on destination: SSHDestination,
-        _ body: (Int) async throws -> T
+        _ body: @Sendable (Int) async throws -> T
     ) async throws -> T {
         let remotePort = try await openReverseForward(toLocalPort: localPort, on: destination)
         do {

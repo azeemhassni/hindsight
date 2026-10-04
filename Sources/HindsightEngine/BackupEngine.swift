@@ -133,7 +133,10 @@ public struct BackupEngine: Sendable {
             let localPort = try await server.start()
 
             emit(.phase(.openingTunnel))
-            let outcome: (ResticSummary, String?)
+            // Warnings are returned from the session rather than appended to a
+            // captured variable: the session body runs on its own isolation
+            // domain, and sharing mutable state across it is a data race.
+            let outcome: (ResticSummary, String?, [DatabaseDumpResult], [String])
             do {
                 outcome = try await client.withReverseForward(
                     toLocalPort: localPort,
@@ -150,6 +153,7 @@ public struct BackupEngine: Sendable {
                         value: repositoryURL
                     )
 
+                    var sessionWarnings: [String] = []
                     var metadataSnapshotID: String?
                     if plan.includeMetadata {
                         emit(.phase(.collectingMetadata))
@@ -164,21 +168,42 @@ public struct BackupEngine: Sendable {
                         } catch {
                             // Metadata is valuable but never worth failing the
                             // backup of the data itself.
-                            warnings.append("Could not record server metadata: \(error)")
+                            sessionWarnings.append("Could not record server metadata: \(error)")
                             emit(.warning("Could not record server metadata: \(error)"))
                         }
                     }
 
                     emit(.phase(.backingUp))
-                    let summary = try await runRemoteBackup(
+                    let backup = try await runRemoteBackup(
                         plan: plan,
                         facts: facts,
                         remoteRestic: remoteRestic,
                         repositorySecret: repositorySecret,
-                        emit: emit,
-                        warnings: &warnings
+                        emit: emit
                     )
-                    return (summary, metadataSnapshotID)
+                    let summary = backup.summary
+                    sessionWarnings += backup.warnings
+
+                    var dumps: [DatabaseDumpResult] = []
+                    if plan.includeDatabaseDumps {
+                        emit(.phase(.dumpingDatabases))
+                        dumps = await dumpDatabases(
+                            plan: plan,
+                            facts: facts,
+                            remoteRestic: remoteRestic,
+                            repositorySecret: repositorySecret,
+                            emit: emit
+                        )
+                        // A dump that failed is a warning on an otherwise good
+                        // backup of the filesystem, not a silent omission.
+                        for failure in dumps where !failure.succeeded {
+                            let text = "Could not dump \(failure.target.displayName): "
+                                + (failure.failure ?? "unknown reason")
+                            sessionWarnings.append(text)
+                            emit(.warning(text))
+                        }
+                    }
+                    return (summary, metadataSnapshotID, dumps, sessionWarnings)
                 }
             } catch {
                 // Deterministic teardown: a cancelled backup must not leave a
@@ -187,6 +212,7 @@ public struct BackupEngine: Sendable {
                 throw error
             }
             await server.stop()
+            warnings += outcome.3
 
             emit(.phase(.recording))
             let snapshots = try await local.snapshots()
@@ -206,11 +232,17 @@ public struct BackupEngine: Sendable {
                 metadataSnapshot = found.toSnapshot(kind: .metadata)
             }
 
+            for dump in outcome.2 {
+                guard let id = dump.snapshotID?.value, let found = byID[id] else { continue }
+                emit(.snapshotCreated(found.toSnapshot(kind: .databaseDump)))
+            }
+
             emit(.phase(.finishing))
             let summary = outcome.0
             return BackupOutcome(
                 filesystemSnapshot: filesystemSnapshot,
                 metadataSnapshot: metadataSnapshot,
+                databaseDumps: outcome.2,
                 filesNew: summary.filesNew,
                 filesChanged: summary.filesChanged,
                 filesUnmodified: summary.filesUnmodified,
@@ -222,14 +254,82 @@ public struct BackupEngine: Sendable {
         }
     }
 
+    /// Dumps every database the server has, each into its own snapshot.
+    ///
+    /// Failures are collected rather than thrown: a database that cannot be
+    /// reached must not discard a filesystem backup that already succeeded.
+    private func dumpDatabases(
+        plan: BackupPlan,
+        facts: RemoteFacts,
+        remoteRestic: String,
+        repositorySecret: Secret,
+        emit: @Sendable (BackupEvent) -> Void
+    ) async -> [DatabaseDumpResult] {
+        let discovery = DatabaseDiscovery(client: client)
+        let backup = DatabaseBackup(client: client)
+
+        let targets: [DatabaseTarget]
+        do {
+            targets = try await discovery.discover(on: plan.destination, facts: facts)
+        } catch {
+            emit(.warning("Could not look for databases: \(error)"))
+            return []
+        }
+        guard !targets.isEmpty else { return [] }
+        emit(.message("Found \(targets.count) database(s) to dump."))
+
+        var results: [DatabaseDumpResult] = []
+        for target in targets {
+            let password = plan.databaseCredentials[target.identifier]
+            let databases = (try? await backup.listDatabases(
+                for: target,
+                databasePassword: password,
+                on: plan.destination
+            )) ?? []
+
+            // One snapshot per database, so each keeps its own history and can
+            // be restored without touching the others.
+            let subjects: [String?] = databases.isEmpty ? [target.databaseName] : databases
+            for database in subjects {
+                do {
+                    let result = try await backup.backUp(
+                        target,
+                        database: database,
+                        remoteResticPath: remoteRestic,
+                        repositorySecret: repositorySecret,
+                        repositoryPassword: plan.repositoryPassword,
+                        databasePassword: password,
+                        on: plan.destination,
+                        hasBash: facts.hasBash,
+                        priorityPrefix: facts.lowPriorityPrefix
+                    )
+                    results.append(result)
+                    emit(.databaseDumped(result))
+                } catch {
+                    results.append(
+                        DatabaseDumpResult(
+                            target: target,
+                            database: database,
+                            snapshotID: nil,
+                            bytesAdded: 0,
+                            bytesProcessed: 0,
+                            consistencyNote: nil,
+                            failure: "\(error)"
+                        )
+                    )
+                }
+            }
+        }
+        return results
+    }
+
     private func runRemoteBackup(
         plan: BackupPlan,
         facts: RemoteFacts,
         remoteRestic: String,
         repositorySecret: Secret,
-        emit: @Sendable (BackupEvent) -> Void,
-        warnings: inout [String]
-    ) async throws -> ResticSummary {
+        emit: @Sendable (BackupEvent) -> Void
+    ) async throws -> (summary: ResticSummary, warnings: [String]) {
         let includeFile = "\(facts.homeDirectory)/.cache/hindsight/include-\(plan.server.id.value).txt"
         let excludeFile = "\(facts.homeDirectory)/.cache/hindsight/exclude-\(plan.server.id.value).txt"
 
@@ -288,8 +388,8 @@ public struct BackupEngine: Sendable {
             }
         }
 
-        warnings.append(contentsOf: collectedWarnings)
         guard let summary else { throw BackupEngineError.noSummaryFromRestic }
+        var warnings = collectedWarnings
 
         // restic exits 3 when it finished but could not read everything. That
         // is a warning, not a success: the snapshot is real but incomplete, and
@@ -304,7 +404,7 @@ public struct BackupEngine: Sendable {
             warnings.append("Some files could not be read; the snapshot is incomplete.")
         }
 
-        return summary
+        return (summary, warnings)
     }
 
     private func existingPaths(

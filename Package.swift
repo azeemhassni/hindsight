@@ -197,7 +197,12 @@ let package = Package(
         ),
         .testTarget(
             name: "HindsightEngineTests",
-            dependencies: ["HindsightEngine", "HindsightTestSupport"],
+            dependencies: [
+                "HindsightEngine",
+                "HindsightTestSupport",
+                "HindsightAgentKit",
+                "HindsightProtocol",
+            ],
             swiftSettings: .common
         ),
     ],

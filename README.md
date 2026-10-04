@@ -16,8 +16,9 @@ captures the pieces a Coolify rebuild cannot do without.
 
 ## State
 
-Working engine with 353 tests, most of them against real servers in Docker and
-a real Coolify install in a local VM rather than against mocks. See
+Working engine and interface, with 402 tests — most of them against real
+servers in Docker and a real Coolify install in a local VM rather than against
+mocks. See
 `docs/PLAN.md` for what each milestone delivered and `docs/CHANGELOG.md` for
 the running log.
 

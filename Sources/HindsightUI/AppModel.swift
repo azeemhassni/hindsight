@@ -24,6 +24,8 @@ public final class AppModel {
     public var activity: [ActivityEntry] = []
     public var selectedServerID: String?
     public var lastError: String?
+    /// The most recent restore outcome, so an open sheet can reflect it.
+    public var lastRestoreEvent: AgentEvent?
 
     /// Replaced rather than appended by the transport, so the view can be
     /// driven in tests without any XPC at all.
@@ -79,7 +81,7 @@ public final class AppModel {
             connection = .connected
         case let .failed(message):
             lastError = message
-        case .accepted, .done:
+        case .accepted, .done, .restorePreview, .hostKey, .probe, .serverAdded:
             break
         }
     }
@@ -92,8 +94,129 @@ public final class AppModel {
         case let .failed(message):
             lastError = message
             append(.init(level: .error, message: message, jobID: nil))
-        default:
+        case .done, .status, .restorePreview, .hostKey, .probe, .serverAdded, .none:
             break
+        }
+        await refresh()
+    }
+
+    /// Works out what a restore would change, without changing it.
+    public func previewRestore(_ command: RestoreCommand) async -> RestorePreviewReport? {
+        guard let send else { return nil }
+        switch await send(.previewRestore(command)) {
+        case let .restorePreview(report):
+            return report
+        case let .failed(message):
+            lastError = message
+            append(.init(level: .error, message: message, jobID: nil))
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    public func runRestore(_ command: RestoreCommand) async -> String? {
+        guard let send else { return nil }
+        switch await send(.runRestore(command)) {
+        case let .accepted(jobID):
+            append(.init(
+                level: .info,
+                message: "Restore started for \(command.serverID).",
+                jobID: jobID
+            ))
+            await refresh()
+            return jobID
+        case let .failed(message):
+            lastError = message
+            append(.init(level: .error, message: message, jobID: nil))
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    @discardableResult
+    public func updateSettings(_ update: ServerSettingsUpdate) async -> Bool {
+        guard let send else { return false }
+        switch await send(.updateServerSettings(update)) {
+        case .done:
+            await refresh()
+            return true
+        case let .failed(message):
+            lastError = message
+            append(.init(level: .error, message: message, jobID: nil))
+            return false
+        default:
+            return false
+        }
+    }
+
+    // MARK: Onboarding
+
+    public func scanHostKey(host: String, port: Int) async -> HostKeyReport? {
+        guard let send else { return nil }
+        switch await send(.scanHostKey(host: host, port: port)) {
+        case let .hostKey(report): return report
+        case let .failed(message):
+            lastError = message
+            return nil
+        default: return nil
+        }
+    }
+
+    @discardableResult
+    public func trustHostKey(host: String, port: Int, report: HostKeyReport) async -> Bool {
+        guard let send else { return false }
+        switch await send(.trustHostKey(
+            host: host,
+            port: port,
+            keyType: report.keyType,
+            base64Key: report.base64Key
+        )) {
+        case .done: return true
+        case let .failed(message):
+            lastError = message
+            return false
+        default: return false
+        }
+    }
+
+    public func probeServer(_ draft: AddServerDraft) async -> ServerProbeReport? {
+        guard let send else { return nil }
+        switch await send(.probeServer(draft)) {
+        case let .probe(report): return report
+        case let .failed(message):
+            lastError = message
+            return nil
+        default: return nil
+        }
+    }
+
+    public func addServer(_ draft: AddServerDraft) async -> String? {
+        guard let send else { return nil }
+        switch await send(.addServer(draft)) {
+        case let .serverAdded(serverID):
+            await refresh()
+            return serverID
+        case let .failed(message):
+            lastError = message
+            return nil
+        default: return nil
+        }
+    }
+
+    public func runMaintenance(serverID: String) async {
+        guard let send else { return }
+        if case let .failed(message) = await send(.runMaintenance(serverID: serverID)) {
+            lastError = message
+        }
+        await refresh()
+    }
+
+    public func checkIntegrity(serverID: String) async {
+        guard let send else { return }
+        if case let .failed(message) = await send(.checkIntegrity(serverID: serverID)) {
+            lastError = message
         }
         await refresh()
     }
@@ -121,6 +244,16 @@ public final class AppModel {
             break
         case let .integrityProblem(serverID, message):
             append(.init(level: .error, message: "\(serverID): \(message)", jobID: nil))
+        case let .restoreFinished(serverID, succeeded, safetySnapshotID, message):
+            lastRestoreEvent = event
+            append(.init(
+                level: succeeded ? .info : .error,
+                message: succeeded
+                    ? "Restore of \(serverID) finished. It can be undone from snapshot "
+                        + "\(safetySnapshotID.map { String($0.prefix(8)) } ?? "—")."
+                    : "Restore of \(serverID) failed: \(message ?? "no reason given")",
+                jobID: nil
+            ))
         }
     }
 

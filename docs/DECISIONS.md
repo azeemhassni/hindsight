@@ -12,7 +12,7 @@ from you, batched for the end of the project rather than blocking progress.
 | 3 | Coolify coverage | Only a **database** resource was deployed in the test VM. Application and service labels are inferred from that plus Coolify's source, not observed. Closing it needs Coolify's **web onboarding** completed in the VM first: the `localhost` server has no private key without it, and deployment fails inside Coolify. | Documented as unverified in `docs/COOLIFY.md` §10, with the exact reason and the steps to finish it. I did not create the key row by hand — its column is encrypted with `APP_KEY`, and writing Coolify's private schema is what Hindsight refuses to do elsewhere. |
 | 4 | Restoring a Coolify instance | Not yet exercised end to end into a fresh VM. It is the flow that matters most if a Coolify server is lost. | The plan's paths are verified individually against a live install. |
 | 5 | Notifications | Whether failures should also mail or push somewhere, or stay local notifications only. | Not implemented yet. |
-| 6 | Wiring order | Which of the unwired pieces in `ARCHITECTURE.md` §20 you want first. My own order would be restore from the interface, then dumps inside a scheduled backup, then maintenance scheduling. | Nothing is stubbed to look finished. |
+| 6 | ~~Wiring order~~ | Done. Everything in §20 is wired; what remains unproven is listed there. | — |
 
 ## Resolved
 
@@ -49,4 +49,7 @@ from you, batched for the end of the project rather than blocking progress.
 | R29 | Agent runtime is a library | `HindsightAgentKit`, with three-line entry points for both the SwiftPM executable and the copy embedded in the app bundle. Two copies of the agent would drift. | 2026-10-04 |
 | R31 | The app falls back to the catalog | When the agent is unreachable the window shows the history the catalog holds, with a banner explaining the connection, rather than an empty window. History is in the catalog anyway; only live state needs the agent. | 2026-10-04 |
 | R32 | SwiftUI layout constraints, learned by running it | `ContentUnavailableView` may not be a `List` row; `safeAreaInset` may not be attached to a `NavigationSplitView`; a `NavigationSplitView` may not be nested in a stack. Each crashes or collapses the window on macOS 14. Recorded because they are invisible to the compiler and to unit tests. | 2026-10-04 |
+| R33 | The agent re-checks the restore confirmation | The typed hostname travels with the restore command and is verified in the agent, not only in the app. The app is a client; a client's checks are a convenience, and the process that writes to a server is the one that must be sure. | 2026-10-04 |
+| R34 | Settings save sparsely | An update carries only changed fields. A form that sent everything it displayed would reset whatever had been changed elsewhere since it opened. | 2026-10-04 |
+| R35 | Derived server ids are made unique | Normalising a name to something safe as a path and username can collapse two names onto one id, and the catalog upserts by primary key — so the second server would overwrite the first. A suffix is added instead. | 2026-10-04 |
 | R11 | Host-key-change test | Pins a deliberately wrong key rather than rotating the container's. Same code path, no shared-state damage to other tests. | 2026-10-04 |

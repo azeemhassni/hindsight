@@ -4,6 +4,7 @@ import HindsightCore
 import HindsightEngine
 import HindsightKeychain
 import HindsightProtocol
+import HindsightRestore
 import HindsightRestic
 import HindsightSSH
 import HindsightSchedule
@@ -13,14 +14,20 @@ import HindsightSchedule
 /// Keeping the logic here rather than in the listener means it can be tested
 /// by calling `handle(_:)` directly, with no connection and no entitlements.
 public actor AgentCore {
-    private let configuration: AgentConfiguration
-    private let catalog: Catalog
-    private let secrets: any SecretStore
-    private let version: String
+    let configuration: AgentConfiguration
+    let catalog: Catalog
+    let secrets: any SecretStore
+    let version: String
     private var queue: JobQueue!
     private var scheduler: Scheduler!
     private var running: [String: RunningJob] = [:]
     private var observers: [UUID: @Sendable (AgentEvent) -> Void] = [:]
+    /// Restores waiting to run, keyed by job. The command is held here rather
+    /// than in the queue so the queue stays a plain scheduler.
+    private var pendingRestores: [String: RestoreCommand] = [:]
+    private var maintenanceSweep: Task<Void, Never>?
+    let maintenanceSchedule = MaintenanceSchedule.default
+    let notifier = Notifier()
 
     public init(
         configuration: AgentConfiguration,
@@ -47,6 +54,47 @@ public actor AgentCore {
         }
         await reloadSchedules()
         await scheduler.start()
+
+        notifier.requestAuthorizationIfNeeded()
+        startMaintenanceSweep()
+    }
+
+    /// Looks for maintenance that is due, on its own slow timer.
+    ///
+    /// Separate from the backup scheduler because the two have nothing to say
+    /// to each other: the repository lock already stops them overlapping, and a
+    /// prune that takes an hour must not hold up an hourly backup's evaluation.
+    private func startMaintenanceSweep() {
+        guard maintenanceSweep == nil else { return }
+        maintenanceSweep = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.sweepMaintenance()
+                try? await Task.sleep(for: .seconds(1800))
+            }
+        }
+    }
+
+    private func sweepMaintenance() async {
+        guard let servers = try? catalog.servers() else { return }
+        let onPower = SystemPowerSource().isOnACPower()
+
+        for server in servers {
+            guard let repository = try? catalog.repository(forServer: server.id) else { continue }
+            let decision = MaintenancePlanner.decide(
+                schedule: maintenanceSchedule,
+                lastPrunedAt: repository.lastPrunedAt,
+                lastCheckedAt: repository.lastCheckedAt,
+                onACPower: onPower
+            )
+            guard let kind = decision.jobKind else { continue }
+
+            // One maintenance job per repository at a time; the queue would
+            // serialise them anyway, but queueing a backlog is pointless.
+            guard await !queue.isRunning(repository: repository.path) else { continue }
+            await queue.enqueue(
+                QueuedJob(serverID: server.id, kind: kind, repositoryPath: repository.path)
+            )
+        }
     }
 
     public func handleWake() async {
@@ -54,6 +102,8 @@ public actor AgentCore {
     }
 
     public func stop() async {
+        maintenanceSweep?.cancel()
+        maintenanceSweep = nil
         await scheduler?.stop()
         await queue?.cancelAll()
     }
@@ -96,11 +146,93 @@ public actor AgentCore {
             await reloadSchedules()
             return .done
 
-        case .runMaintenance, .checkIntegrity:
-            // Wired up with the maintenance scheduling in a later milestone;
-            // reporting it plainly beats pretending it happened.
-            return .failed(message: "Not available yet.")
+        case let .runMaintenance(serverID):
+            return enqueueMaintenance(serverID: serverID, kind: .forgetAndPrune)
+
+        case let .checkIntegrity(serverID):
+            return enqueueMaintenance(serverID: serverID, kind: .check(readDataSubset: nil))
+
+        case let .previewRestore(command):
+            do {
+                let report = try await previewRestore(command)
+                return .restorePreview(report)
+            } catch {
+                return .failed(message: "\(error)")
+            }
+
+        case let .runRestore(command):
+            guard let id = try? ServerID(validating: command.serverID),
+                  let server = try? catalog.server(id),
+                  let repository = try? catalog.repository(forServer: id)
+            else { return .failed(message: "No server with id \(command.serverID).") }
+
+            // The hostname is checked here, in the process that will do the
+            // writing, rather than trusted from the caller.
+            guard RestoreSafety.confirmationMatches(
+                command.typedHostname,
+                hostname: server.endpoint.host
+            ) else {
+                return .failed(message: "\(RestoreSafetyError.hostnameConfirmationRequired)")
+            }
+
+            let job = QueuedJob(
+                serverID: id,
+                kind: .restore,
+                repositoryPath: repository.path
+            )
+            pendingRestores[job.id.value] = command
+            await queue.enqueue(job)
+            return .accepted(jobID: job.id.value)
+
+        case let .scanHostKey(host, port):
+            do {
+                return .hostKey(try await scanHostKey(host: host, port: port))
+            } catch {
+                return .failed(message: "\(error)")
+            }
+
+        case let .trustHostKey(host, port, keyType, base64Key):
+            do {
+                try trustHostKey(host: host, port: port, keyType: keyType, base64Key: base64Key)
+                return .done
+            } catch {
+                return .failed(message: "\(error)")
+            }
+
+        case let .probeServer(draft):
+            do {
+                return .probe(try await probeServer(draft))
+            } catch {
+                return .failed(message: "\(error)")
+            }
+
+        case let .addServer(draft):
+            do {
+                let id = try await addServer(draft)
+                return .serverAdded(serverID: id.value)
+            } catch {
+                return .failed(message: "\(error)")
+            }
+
+        case let .updateServerSettings(update):
+            do {
+                try apply(update)
+                await reloadSchedules()
+                return .done
+            } catch {
+                return .failed(message: "\(error)")
+            }
         }
+    }
+
+    private func enqueueMaintenance(serverID: String, kind: JobKind) -> AgentResponse {
+        guard let id = try? ServerID(validating: serverID),
+              let repository = try? catalog.repository(forServer: id)
+        else { return .failed(message: "No server with id \(serverID).") }
+
+        let job = QueuedJob(serverID: id, kind: kind, repositoryPath: repository.path)
+        Task { await queue.enqueue(job) }
+        return .accepted(jobID: job.id.value)
     }
 
     public func status() async -> AgentStatus {
@@ -138,7 +270,7 @@ public actor AgentCore {
         return Date().timeIntervalSince(lastBackupAt) > 48 * 3600 ? .stale : .healthy
     }
 
-    private func reloadSchedules() async {
+    func reloadSchedules() async {
         guard let servers = try? catalog.servers() else { return }
         var entries: [ScheduledEntry] = []
         for server in servers {
@@ -187,6 +319,52 @@ public actor AgentCore {
         record.startedAt = Date()
         try catalog.save(record)
 
+        switch job.kind {
+        case .forgetAndPrune, .check:
+            do {
+                try await runMaintenance(job, server: server, repository: repository)
+                record.state = .succeeded
+            } catch {
+                record.state = .failed
+                record.errorText = "\(error)"
+                try? catalog.append("\(error)", level: .error, to: job.id)
+                record.finishedAt = Date()
+                try? catalog.save(record)
+                notifier.integrityProblem(server: server.name, message: "\(error)")
+                emit(.integrityProblem(serverID: server.id.value, message: "\(error)"))
+                throw error
+            }
+            record.finishedAt = Date()
+            try catalog.save(record)
+            return
+
+        case .restore:
+            do {
+                try await runRestore(job, server: server, repository: repository)
+                record.state = .succeeded
+            } catch {
+                record.state = .failed
+                record.errorText = "\(error)"
+                try? catalog.append("\(error)", level: .error, to: job.id)
+                record.finishedAt = Date()
+                try? catalog.save(record)
+                notifier.restoreFinished(server: server.name, succeeded: false)
+                emit(.restoreFinished(
+                    serverID: server.id.value,
+                    succeeded: false,
+                    safetySnapshotID: nil,
+                    message: "\(error)"
+                ))
+                throw error
+            }
+            record.finishedAt = Date()
+            try catalog.save(record)
+            return
+
+        case .backup, .databaseDump, .metadata, .copy:
+            break
+        }
+
         let paths = SSHPaths(
             configurationDirectory: configuration.sshConfigurationDirectory,
             preferredControlDirectory: FileManager.default
@@ -205,9 +383,20 @@ public actor AgentCore {
         case let .existingKey(path): path
         }
 
+        // The profile's own excludes live in code so an upgrade can improve
+        // them; anything a person added is layered on top.
+        let extraExcludes = (try? userExcludes(forServer: server.id)) ?? []
+        let profile = try BackupProfile(
+            includePaths: BackupProfile.fullServer.includePaths,
+            excludePatterns: BackupProfile.fullServer.excludePatterns + extraExcludes,
+            oneFileSystem: BackupProfile.fullServer.oneFileSystem,
+            excludeCaches: BackupProfile.fullServer.excludeCaches
+        )
+
         let plan = BackupPlan(
             server: server,
             destination: SSHDestination(server: server, identityFile: identityFile),
+            profile: profile,
             repositoryRoot: configuration.repositoryRoot,
             repositoryPassword: try secrets.readOrCreate(.repositoryPassword(server.id))
         )
@@ -223,8 +412,25 @@ public actor AgentCore {
             try? catalog.append("\(error)", level: .error, to: job.id)
             record.finishedAt = Date()
             try? catalog.save(record)
-            _ = repository
+            // A failed backup is worth interrupting someone for; a successful
+            // one is not.
+            notifier.backupFailed(server: server.name, reason: "\(error)")
             throw error
+        }
+
+        // Reconcile the catalog with what the repository now holds, so a prune
+        // somewhere else cannot leave the timeline showing snapshots that are
+        // gone.
+        if let local = try? localClient(for: server, repository: repository),
+           let listed = try? await local.snapshots() {
+            try? catalog.record(
+                listed.map { $0.toSnapshot() },
+                inRepository: repository.id
+            )
+            _ = try? catalog.retainOnly(
+                resticIDs: Set(listed.map(\.id)),
+                inRepository: repository.id
+            )
         }
 
         record.finishedAt = Date()
@@ -257,6 +463,17 @@ public actor AgentCore {
                 try? catalog.record(snapshot, inRepository: repository.id)
             }
             emit(.catalogChanged)
+        case let .databaseDumped(result):
+            let description = result.succeeded
+                ? "Dumped \(result.target.displayName)"
+                    + (result.database.map { " (\($0))" } ?? "")
+                    + ": \(result.bytesAdded) bytes added."
+                : "Could not dump \(result.target.displayName): \(result.failure ?? "unknown")"
+            try? catalog.append(
+                description,
+                level: result.succeeded ? .info : .warning,
+                to: job.id
+            )
         case .finished:
             self.running[job.id.value] = nil
         }
@@ -287,7 +504,12 @@ public actor AgentCore {
         }
     }
 
-    private func emit(_ event: AgentEvent) {
+    func takePendingRestore(_ jobID: String) -> RestoreCommand? {
+        defer { pendingRestores[jobID] = nil }
+        return pendingRestores[jobID]
+    }
+
+    func emit(_ event: AgentEvent) {
         for observer in observers.values { observer(event) }
     }
 }
@@ -295,11 +517,14 @@ public actor AgentCore {
 public enum AgentError: Error, CustomStringConvertible {
     case unknownServer(String)
     case noRepository(String)
+    case noRestoreCommand(String)
 
     public var description: String {
         switch self {
         case let .unknownServer(id): "No server with id \(id)."
         case let .noRepository(id): "Server \(id) has no repository yet."
+        case let .noRestoreCommand(id):
+            "Job \(id) has no restore attached to it, so nothing was changed."
         }
     }
 }

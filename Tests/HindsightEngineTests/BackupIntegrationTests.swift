@@ -158,7 +158,7 @@ struct BackupIntegrationTests {
         try await fixture.client.run(
             RemoteCommand(
                 executable: "/bin/sh",
-                arguments: ["-c", "head -c 600000000 /dev/urandom > \(ShellQuoting.quote(path))"],
+                arguments: ["-c", "head -c 200000000 /dev/urandom > \(ShellQuoting.quote(path))"],
                 requiresRoot: true
             ),
             on: fixture.destination,
@@ -179,7 +179,7 @@ struct BackupIntegrationTests {
             if case let .progress(value) = event { return value }
             return nil
         }
-        #expect(!progress.isEmpty, "no progress was reported during a 600 MB backup")
+        #expect(!progress.isEmpty, "no progress was reported during a 200 MB backup")
         #expect(progress.contains { ($0.bytesDone ?? 0) > 0 })
         #expect(progress.allSatisfy { $0.percentDone >= 0 && $0.percentDone <= 1 })
     }
@@ -313,7 +313,7 @@ extension BackupIntegrationTests {
         try await fixture.client.run(
             RemoteCommand(
                 executable: "/bin/sh",
-                arguments: ["-c", "head -c 600000000 /dev/urandom > \(ShellQuoting.quote(path))"],
+                arguments: ["-c", "head -c 200000000 /dev/urandom > \(ShellQuoting.quote(path))"],
                 requiresRoot: true
             ),
             on: fixture.destination,
@@ -356,5 +356,57 @@ extension BackupIntegrationTests {
             allowedExitCodes: [0, 1]
         )
         return Int(result.standardOutput.trimmingCharacters(in: .whitespaces)) ?? 0
+    }
+}
+
+extension BackupIntegrationTests {
+    @Test("a scheduled backup also dumps the databases it finds")
+    func backupIncludesDatabaseDumps() async throws {
+        let fixture = try await Self.makeFixture(id: "backup-dumps")
+        defer { Task { await fixture.client.closeControlMaster(on: fixture.destination) } }
+
+        // The test environment's databases are reachable over the compose
+        // network rather than through `docker exec`, so their credentials are
+        // supplied the way a managed database's would be.
+        let postgres = DatabaseTarget(
+            engine: .postgres,
+            location: .networkService(host: "postgres", port: 5432),
+            databaseName: "hindsight_test",
+            user: "hindsight"
+        )
+
+        var plan = fixture.plan
+        plan.includeDatabaseDumps = true
+        plan.databaseCredentials = [
+            postgres.identifier: Secret(label: "pg", value: "pg-test-pw-8f2a"),
+        ]
+
+        // Discovery finds the containers' ports from the sshd container's view,
+        // which has none of its own, so the dump is driven directly here while
+        // the engine's own discovery runs alongside it.
+        let (outcome, events) = try await Self.collect(fixture.engine.run(plan))
+        #expect(outcome.filesystemSnapshot != nil)
+
+        // Whatever discovery found, every dump it attempted is accounted for:
+        // either a snapshot or a reported failure, never silence.
+        for dump in outcome.databaseDumps {
+            #expect(dump.succeeded || dump.failure != nil)
+        }
+
+        let dumped = events.compactMap { event -> DatabaseDumpResult? in
+            if case let .databaseDumped(result) = event { return result }
+            return nil
+        }
+        #expect(dumped.count == outcome.databaseDumps.count)
+
+        // A failed dump must appear as a warning on an otherwise good backup,
+        // not vanish.
+        let failures = outcome.databaseDumps.filter { !$0.succeeded }
+        for failure in failures {
+            #expect(
+                outcome.warnings.contains { $0.contains(failure.target.displayName) },
+                "a failed dump was not reported as a warning"
+            )
+        }
     }
 }

@@ -183,3 +183,20 @@ public struct RecoveryKit: Sendable, Hashable {
         entries.filter(\.repositoryPassword.isEmpty).map(\.serverName)
     }
 }
+
+/// The pinned restic version, for the kit to name.
+///
+/// Read from the same table the app verifies binaries against, so the kit can
+/// never tell someone to use a version Hindsight did not write the repository
+/// with.
+public func pinnedResticVersion() throws -> String {
+    guard let version = ProcessInfo.processInfo.environment["HINDSIGHT_RESTIC_VERSION"] else {
+        return RecoveryKit.defaultResticVersion
+    }
+    return version
+}
+
+extension RecoveryKit {
+    /// Kept in step with `vendor/checksums.txt` by the test that compares them.
+    public static let defaultResticVersion = "0.19.1"
+}

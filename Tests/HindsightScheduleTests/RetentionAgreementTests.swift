@@ -45,6 +45,27 @@ struct RetentionAgreementTests {
         let snapshots: [Snapshot]
     }
 
+    /// Built once for the whole suite.
+    ///
+    /// Each snapshot is a separate restic invocation, so a corpus large enough
+    /// to be meaningful costs about a minute. Building it per test tripled the
+    /// suite's runtime for no extra coverage.
+    private actor CorpusCache {
+        static let shared = CorpusCache()
+        private var corpus: Corpus?
+
+        func get() async throws -> Corpus {
+            if let corpus { return corpus }
+            let built = try await buildCorpus()
+            corpus = built
+            return built
+        }
+    }
+
+    static func corpus() async throws -> Corpus {
+        try await CorpusCache.shared.get()
+    }
+
     static func buildCorpus() async throws -> Corpus {
         let root = try TestEnvironment.temporaryRepositoryRoot()
         let repository = root.appendingPathComponent("retention")
@@ -112,7 +133,7 @@ struct RetentionAgreementTests {
 
     @Test("predicts exactly the snapshots restic would forget", .enabled(if: resticAvailable))
     func agreesWithResticOnEveryPolicy() async throws {
-        let corpus = try await Self.buildCorpus()
+        let corpus = try await Self.corpus()
         #expect(corpus.snapshots.count > 50, "the corpus is too small to be meaningful")
 
         for (name, policy) in Self.policies {
@@ -157,7 +178,7 @@ struct RetentionAgreementTests {
 
     @Test("explains its decisions and scopes dumps separately", .enabled(if: resticAvailable))
     func explainsItsDecisions() async throws {
-        let corpus = try await Self.buildCorpus()
+        let corpus = try await Self.corpus()
         let decision = RetentionEngine.applyPerGroup(.filesystemDefault, to: corpus.snapshots)
 
         for snapshot in decision.keep {

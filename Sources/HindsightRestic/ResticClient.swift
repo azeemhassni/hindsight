@@ -325,3 +325,48 @@ public struct ResticStats: Decodable, Sendable, Hashable {
         case snapshotsCount = "snapshots_count"
     }
 }
+
+extension ResticClient {
+    /// One level of a snapshot's tree, for the browser.
+    ///
+    /// restic lists recursively, so a directory deep in a large snapshot would
+    /// mean reading millions of entries to show a dozen. `--recursive` is left
+    /// off and the path is given to restic, which walks only what was asked for.
+    public func children(
+        ofSnapshot snapshot: SnapshotID,
+        path: String
+    ) async throws -> [ResticNode] {
+        let nodes = try await list(
+            snapshot: snapshot,
+            path: path == "/" ? nil : path,
+            recursive: false
+        )
+        let prefix = path == "/" ? "/" : path + "/"
+        return nodes
+            .filter { $0.path.hasPrefix(prefix) && $0.path != path }
+            .filter { node in
+                // Only direct children: restic includes the ancestors of the
+                // requested path in its output.
+                let remainder = node.path.dropFirst(prefix.count)
+                return !remainder.contains("/")
+            }
+            .sorted { left, right in
+                if left.isDirectory != right.isDirectory { return left.isDirectory }
+                return left.name.localizedStandardCompare(right.name) == .orderedAscending
+            }
+    }
+
+    /// Writes one file out of a snapshot, for Quick Look or a single-file
+    /// restore onto the Mac.
+    public func dumpFile(
+        snapshot: SnapshotID,
+        path: String,
+        to destination: URL
+    ) async throws {
+        let result = try await run(
+            ["dump", snapshot.value, path],
+            operation: "dump"
+        )
+        try Data(result.standardOutput.utf8).write(to: destination, options: .atomic)
+    }
+}

@@ -128,3 +128,30 @@ struct RecoveryKitTests {
         }
     }
 }
+
+@Suite("Recovery kit version")
+struct RecoveryKitVersionTests {
+    /// The kit tells someone which restic to use. If that drifts from the
+    /// version Hindsight actually writes repositories with, the instructions
+    /// could name a release that cannot read them.
+    @Test("names the same restic version the build pins")
+    func matchesThePinnedVersion() throws {
+        let checksums = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("vendor/checksums.txt")
+        let contents = try String(contentsOf: checksums, encoding: .utf8)
+
+        let pinned = contents
+            .split(separator: "\n")
+            .filter { !$0.hasPrefix("#") && $0.contains("restic\t") }
+            .compactMap { $0.split(separator: "\t").dropFirst().first.map(String.init) }
+
+        #expect(!pinned.isEmpty, "no restic version found in vendor/checksums.txt")
+        #expect(
+            pinned.allSatisfy { $0 == RecoveryKit.defaultResticVersion },
+            "the recovery kit names \(RecoveryKit.defaultResticVersion) but the build pins \(Set(pinned))"
+        )
+    }
+}
