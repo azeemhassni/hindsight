@@ -1,11 +1,14 @@
 SWIFT ?= swift
 
-.PHONY: all build test test-integration lint clean
+.PHONY: all build vendor test test-integration lint clean
 
 all: build
 
-build:
+build: vendor
 	$(SWIFT) build
+
+vendor:
+	./scripts/vendor.sh
 
 test:
 	$(SWIFT) test

@@ -1,0 +1,16 @@
+# Pinned upstream artifacts for Hindsight. Tab-separated.
+#
+# archive_sha256 is the digest published in the upstream release SHA256SUMS and
+# is checked immediately after download.
+#
+# binary_sha256 is the digest of the extracted executable. It is the value
+# Hindsight verifies on a VPS before every single run, so it is pinned here in
+# git rather than computed at build time.
+#
+# tool	version	platform	archive	archive_sha256	binary_sha256
+restic	0.19.1	linux_amd64	restic_0.19.1_linux_amd64.bz2	f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c	20d4142678d0d95ec11a4759def1b73fd9190abc9ca19e4b62d067c0b387e639
+restic	0.19.1	linux_arm64	restic_0.19.1_linux_arm64.bz2	a5f64aaab53d51e311fa3829124c5b703f2d14cf187d8640b6be3b2b49376465	2fb45ac6f9071b6f20eb883953a188f9e7c7cb6bbe43c67a2e47ada4e85ee7f0
+restic	0.19.1	darwin_amd64	restic_0.19.1_darwin_amd64.bz2	c38d579622cf602f665234c5a8c315030b6cf70656028fe6dc29a786b60e5f35	b2b553b402b9971b0c3f673d880397a421526f55a08f21fe5b82b5dd9e049a08
+restic	0.19.1	darwin_arm64	restic_0.19.1_darwin_arm64.bz2	7be0a144ccc377880f294204aa271d76e4b79554b42a751151d425ce6ebac143	06582569ff2f10e1935a6f12187c76db02f0bae99e6e54098f2cdc374766d768
+rest-server	0.14.0	darwin_amd64	rest-server_0.14.0_darwin_amd64.tar.gz	ced47a785aec6a9fa3041cfa799dcc6c55527a12944d7a8147fc1595b5b0e945	1364412eaa637f5a074da9c39de957a54f745b1e0202871aed5d54ecf72fd2f1
+rest-server	0.14.0	darwin_arm64	rest-server_0.14.0_darwin_arm64.tar.gz	057004ce24ca9edfbe0e391eae87981ab03f2abb6b65cf8fdfcddf847ded8656	49f9dd121baaed824fd773153e0a2e7187a85d57a06da19baea75f066419e582

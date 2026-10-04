@@ -4,4 +4,5 @@
 *.xcworkspace
 DerivedData/
 vendor/bin/
+vendor/cache/
 .DS_Store

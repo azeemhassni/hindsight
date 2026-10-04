@@ -1,0 +1,162 @@
+#!/bin/bash
+# Downloads, verifies, and extracts the pinned restic and rest-server binaries.
+#
+# Every artifact is checked against vendor/checksums.txt twice: the archive as
+# downloaded, and the executable after extraction. A mismatch is fatal; this
+# script never falls back to an unverified binary.
+#
+#   scripts/vendor.sh              verify and extract
+#   scripts/vendor.sh --record     fill in PENDING binary digests (version bumps)
+
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+checksums="$root/vendor/checksums.txt"
+cache="$root/vendor/cache"
+bin="$root/vendor/bin"
+generated="$root/Sources/HindsightRestic/PinnedBinaries.swift"
+record=0
+[[ "${1:-}" == "--record" ]] && record=1
+
+mkdir -p "$cache" "$bin"
+
+repo_for() {
+  case "$1" in
+    restic) echo "restic/restic" ;;
+    rest-server) echo "restic/rest-server" ;;
+    *) echo "unknown tool: $1" >&2; exit 1 ;;
+  esac
+}
+
+digest() { shasum -a 256 "$1" | cut -d' ' -f1; }
+
+fail() { echo "error: $*" >&2; exit 1; }
+
+extract() {
+  local archive="$1" tool="$2" destination="$3"
+  case "$archive" in
+    *.bz2)
+      bunzip2 -c "$archive" > "$destination"
+      ;;
+    *.tar.gz)
+      local inner
+      inner="$(tar tzf "$archive" | grep -E "(^|/)$tool\$" | head -1)"
+      [[ -n "$inner" ]] || fail "no $tool executable inside $(basename "$archive")"
+      tar xzf "$archive" -O "$inner" > "$destination"
+      ;;
+    *)
+      fail "unsupported archive $(basename "$archive")"
+      ;;
+  esac
+  chmod 700 "$destination"
+}
+
+recorded=()
+verified=0
+
+while IFS=$'\t' read -r tool version platform archive archive_sha binary_sha; do
+  [[ -z "${tool:-}" || "$tool" == \#* ]] && continue
+
+  url="https://github.com/$(repo_for "$tool")/releases/download/v$version/$archive"
+  archive_path="$cache/$archive"
+  binary_path="$bin/$tool-$version-$platform"
+
+  if [[ -f "$archive_path" ]] && [[ "$(digest "$archive_path")" == "$archive_sha" ]]; then
+    : # already present and correct
+  else
+    echo "fetching $archive"
+    curl -fsSL --retry 3 -o "$archive_path.part" "$url" || fail "download failed: $url"
+    mv "$archive_path.part" "$archive_path"
+    actual="$(digest "$archive_path")"
+    [[ "$actual" == "$archive_sha" ]] || fail "archive digest mismatch for $archive
+  expected $archive_sha
+  actual   $actual"
+  fi
+
+  if [[ ! -f "$binary_path" ]]; then
+    extract "$archive_path" "$tool" "$binary_path"
+  fi
+
+  actual_binary="$(digest "$binary_path")"
+  if [[ "$binary_sha" == "PENDING" ]]; then
+    if (( record )); then
+      recorded+=("$tool	$version	$platform	$actual_binary")
+      binary_sha="$actual_binary"
+    else
+      fail "binary digest for $tool $version $platform is PENDING; run scripts/vendor.sh --record"
+    fi
+  elif [[ "$actual_binary" != "$binary_sha" ]]; then
+    fail "binary digest mismatch for $tool $version $platform
+  expected $binary_sha
+  actual   $actual_binary"
+  fi
+
+  verified=$((verified + 1))
+  echo "verified $tool $version $platform"
+done < "$checksums"
+
+if (( ${#recorded[@]} )); then
+  for entry in "${recorded[@]}"; do
+    IFS=$'\t' read -r tool version platform sha <<< "$entry"
+    python3 - "$checksums" "$tool" "$version" "$platform" "$sha" <<'PY'
+import sys
+path, tool, version, platform, sha = sys.argv[1:6]
+lines = open(path).read().splitlines(True)
+for i, line in enumerate(lines):
+    fields = line.rstrip("\n").split("\t")
+    if len(fields) == 6 and fields[:3] == [tool, version, platform]:
+        fields[5] = sha
+        lines[i] = "\t".join(fields) + "\n"
+open(path, "w").writelines(lines)
+PY
+  done
+  echo "recorded ${#recorded[@]} binary digests in vendor/checksums.txt"
+fi
+
+# The pinned table is generated rather than hand-maintained so the digests the
+# app verifies against cannot drift from the ones this script enforces.
+python3 - "$checksums" "$generated" <<'PY'
+import sys
+
+checksums, output = sys.argv[1:3]
+
+platform_cases = {
+    "linux_amd64": "linuxAMD64",
+    "linux_arm64": "linuxARM64",
+    "darwin_amd64": "darwinAMD64",
+    "darwin_arm64": "darwinARM64",
+}
+tool_cases = {"restic": "restic", "rest-server": "restServer"}
+
+rows = []
+for line in open(checksums):
+    line = line.rstrip("\n")
+    if not line or line.startswith("#"):
+        continue
+    tool, version, platform, archive, archive_sha, binary_sha = line.split("\t")
+    rows.append((tool, version, platform, archive, archive_sha, binary_sha))
+
+entries = []
+for tool, version, platform, archive, archive_sha, binary_sha in rows:
+    entries.append(
+        "        PinnedBinary(\n"
+        f"            tool: .{tool_cases[tool]},\n"
+        f'            version: "{version}",\n'
+        f"            platform: .{platform_cases[platform]},\n"
+        f'            archiveName: "{archive}",\n'
+        f'            archiveSHA256: "{archive_sha}",\n'
+        f'            binarySHA256: "{binary_sha}"\n'
+        "        ),"
+    )
+
+with open(output, "w") as handle:
+    handle.write(
+        "// Generated by scripts/vendor.sh from vendor/checksums.txt. Do not edit.\n\n"
+        "extension PinnedBinaries {\n"
+        "    public static let all: [PinnedBinary] = [\n"
+        + "\n".join(entries)
+        + "\n    ]\n}\n"
+    )
+PY
+
+echo "$verified artifacts verified; pinned table written to ${generated#"$root/"}"

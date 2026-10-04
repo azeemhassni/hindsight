@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .library(name: "HindsightCore", targets: ["HindsightCore"]),
         .library(name: "HindsightProcess", targets: ["HindsightProcess"]),
+        .library(name: "HindsightRestic", targets: ["HindsightRestic"]),
     ],
     targets: [
         .target(
@@ -18,6 +19,11 @@ let package = Package(
             dependencies: ["HindsightCore"],
             swiftSettings: .common
         ),
+        .target(
+            name: "HindsightRestic",
+            dependencies: ["HindsightCore", "HindsightProcess"],
+            swiftSettings: .common
+        ),
         .testTarget(
             name: "HindsightCoreTests",
             dependencies: ["HindsightCore"],
@@ -26,6 +32,11 @@ let package = Package(
         .testTarget(
             name: "HindsightProcessTests",
             dependencies: ["HindsightProcess", "HindsightCore"],
+            swiftSettings: .common
+        ),
+        .testTarget(
+            name: "HindsightResticTests",
+            dependencies: ["HindsightRestic"],
             swiftSettings: .common
         ),
     ],
