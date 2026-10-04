@@ -1,6 +1,7 @@
 SWIFT ?= swift
+CONFIGURATION ?= Debug
 
-.PHONY: all build vendor test test-integration test-coolify lint clean
+.PHONY: all build vendor app test test-integration test-coolify lint clean
 
 all: build
 
@@ -23,6 +24,19 @@ test-coolify:
 	./scripts/coolify-testenv.sh up
 	set -a; eval "$$(./scripts/testenv.sh env)"; eval "$$(./scripts/coolify-testenv.sh env)"; set +a; \
 		HINDSIGHT_TEST_COOLIFY=1 $(SWIFT) test --filter CoolifyIntegrationTests
+
+# Builds Hindsight.app. Signs with HINDSIGHT_SIGNING_IDENTITY when it is set;
+# without it the build is unsigned, which cannot register a LaunchAgent.
+app: vendor
+	@command -v xcodegen >/dev/null 2>&1 || { \
+		echo "xcodegen is needed to generate the app project: brew install xcodegen"; \
+		exit 1; \
+	}
+	cd App && xcodegen generate
+	cd App && xcodebuild -project Hindsight.xcodeproj -scheme Hindsight \
+		-configuration $(CONFIGURATION) -destination 'platform=macOS' \
+		$(if $(HINDSIGHT_SIGNING_IDENTITY),CODE_SIGN_IDENTITY="$(HINDSIGHT_SIGNING_IDENTITY)",CODE_SIGNING_ALLOWED=NO) \
+		build
 
 lint:
 	@if command -v swiftformat >/dev/null 2>&1; then \

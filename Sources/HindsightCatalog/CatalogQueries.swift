@@ -202,6 +202,12 @@ extension Catalog {
         return records.map { $0.toSnapshot(tags: tagsByID[$0.resticID] ?? []) }
     }
 
+    /// Every snapshot for a server, for the timeline.
+    public func snapshots(forServer id: ServerID, limit: Int? = nil) throws -> [Snapshot] {
+        guard let repository = try repository(forServer: id) else { return [] }
+        return try snapshots(inRepository: repository.id, limit: limit)
+    }
+
     // MARK: Jobs
 
     public func save(_ job: JobRecord) throws {
@@ -310,6 +316,75 @@ extension Catalog {
                 .order(Column("startedAt").desc)
                 .limit(limit)
                 .fetchAll(database)
+        }
+    }
+}
+
+/// The read-only queries the app needs.
+///
+/// Separate from `Catalog` so the app physically cannot write: the agent is the
+/// only writer, and two processes writing one SQLite file is a bug waiting for
+/// a bad moment.
+extension CatalogReader {
+    public func servers() throws -> [Server] {
+        try read { database in
+            try ServerRecord.order(Column("name")).fetchAll(database)
+        }
+        .map { try $0.toServer() }
+    }
+
+    public func repository(forServer id: ServerID) throws -> RepositoryRecord? {
+        try read { database in
+            try RepositoryRecord.filter(Column("serverId") == id.value).fetchOne(database)
+        }
+    }
+
+    public func snapshots(forServer id: ServerID, limit: Int? = nil) throws -> [Snapshot] {
+        guard let repository = try repository(forServer: id) else { return [] }
+        return try read { database in
+            var request = SnapshotRecord
+                .filter(Column("repositoryId") == repository.id)
+                .order(Column("time").desc)
+            if let limit { request = request.limit(limit) }
+            let records = try request.fetchAll(database)
+            let ids = records.map(\.resticID)
+            let tagRows = try SnapshotTagRecord
+                .filter(ids.contains(Column("snapshotResticID")))
+                .fetchAll(database)
+            var tagsByID: [String: Set<String>] = [:]
+            for row in tagRows {
+                tagsByID[row.snapshotResticID, default: []].insert(row.tag)
+            }
+            return records.map { $0.toSnapshot(tags: tagsByID[$0.resticID] ?? []) }
+        }
+    }
+
+    public func jobs(forServer id: ServerID, limit: Int = 50) throws -> [JobRecord] {
+        try read { database in
+            try JobRecord
+                .filter(Column("serverId") == id.value)
+                .order(Column("queuedAt").desc)
+                .limit(limit)
+                .fetchAll(database)
+        }
+    }
+
+    public func events(for jobID: JobID, limit: Int = 1000) throws -> [JobEventRecord] {
+        try read { database in
+            try JobEventRecord
+                .filter(Column("jobId") == jobID.value)
+                .order(Column("sequence"))
+                .limit(limit)
+                .fetchAll(database)
+        }
+    }
+
+    public func latestCheck(forRepository repositoryId: String) throws -> IntegrityCheckRecord? {
+        try read { database in
+            try IntegrityCheckRecord
+                .filter(Column("repositoryId") == repositoryId)
+                .order(Column("startedAt").desc)
+                .fetchOne(database)
         }
     }
 }

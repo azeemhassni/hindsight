@@ -157,3 +157,22 @@
 - A test now sweeps every scope and target combination to prove nothing is ever
   reported as zero downtime, and the `clone` target gives the honest answer to
   the need behind it: a parallel copy that touches nothing live.
+
+## M7 / M8 — Interface, onboarding, and the snapshot browser
+
+- The interface lives in a `HindsightUI` package module rather than only in the
+  app, so every view compiles under `swift test` instead of only inside Xcode.
+  The app target is a thin shell: window, menu bar item, XPC connection.
+- Sidebar with health carried by symbol, label and spoken description as well
+  as colour; server view with a scrubbable history whose bars track what each
+  snapshot added; activity log whose errors are selectable and copyable in full.
+- Snapshot browser that loads one directory at a time, searches by name, and
+  knows which files are worth a Quick Look.
+- Restore wizard that shows every mode including the unavailable ones with
+  their reasons, previews the exact changes, and needs the hostname typed.
+- Onboarding as a tested state machine. The recovery kit step cannot be
+  skipped, and the kit itself carries literal commands that work with stock
+  restic and no Hindsight at all.
+- `make app` generates the Xcode project with XcodeGen, verifies the pinned
+  binary digests, and embeds the agent, its job description and all six
+  binaries in the bundle.

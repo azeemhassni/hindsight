@@ -12,7 +12,7 @@ import HindsightSchedule
 ///
 /// Keeping the logic here rather than in the listener means it can be tested
 /// by calling `handle(_:)` directly, with no connection and no entitlements.
-actor AgentCore {
+public actor AgentCore {
     private let configuration: AgentConfiguration
     private let catalog: Catalog
     private let secrets: any SecretStore
@@ -22,7 +22,7 @@ actor AgentCore {
     private var running: [String: RunningJob] = [:]
     private var observers: [UUID: @Sendable (AgentEvent) -> Void] = [:]
 
-    init(
+    public init(
         configuration: AgentConfiguration,
         catalog: Catalog,
         secrets: any SecretStore = Keychain(),
@@ -34,7 +34,7 @@ actor AgentCore {
         self.version = version
     }
 
-    func start() async {
+    public func start() async {
         queue = JobQueue { [weak self] job in
             try await self?.run(job)
         }
@@ -49,26 +49,26 @@ actor AgentCore {
         await scheduler.start()
     }
 
-    func handleWake() async {
+    public func handleWake() async {
         await scheduler?.wakeUp()
     }
 
-    func stop() async {
+    public func stop() async {
         await scheduler?.stop()
         await queue?.cancelAll()
     }
 
-    func observe(_ observer: @escaping @Sendable (AgentEvent) -> Void) -> UUID {
+    public func observe(_ observer: @escaping @Sendable (AgentEvent) -> Void) -> UUID {
         let id = UUID()
         observers[id] = observer
         return id
     }
 
-    func removeObserver(_ id: UUID) {
+    public func removeObserver(_ id: UUID) {
         observers[id] = nil
     }
 
-    func handle(_ request: AgentRequest) async -> AgentResponse {
+    public func handle(_ request: AgentRequest) async -> AgentResponse {
         switch request {
         case .status:
             return .status(await status())
@@ -103,7 +103,7 @@ actor AgentCore {
         }
     }
 
-    func status() async -> AgentStatus {
+    public func status() async -> AgentStatus {
         let statuses = await scheduler?.statuses() ?? []
         let byServer = Dictionary(
             statuses.map { ($0.entry.serverID.value, $0) },
@@ -132,7 +132,7 @@ actor AgentCore {
         return AgentStatus(version: version, servers: servers, runningJobs: Array(running.values))
     }
 
-    static func health(lastBackupAt: Date?, lastCheckPassed: Bool) -> ServerStatus.Health {
+    public static func health(lastBackupAt: Date?, lastCheckPassed: Bool) -> ServerStatus.Health {
         guard let lastBackupAt else { return .unknown }
         if !lastCheckPassed { return .failing }
         return Date().timeIntervalSince(lastBackupAt) > 48 * 3600 ? .stale : .healthy
@@ -292,11 +292,11 @@ actor AgentCore {
     }
 }
 
-enum AgentError: Error, CustomStringConvertible {
+public enum AgentError: Error, CustomStringConvertible {
     case unknownServer(String)
     case noRepository(String)
 
-    var description: String {
+    public var description: String {
         switch self {
         case let .unknownServer(id): "No server with id \(id)."
         case let .noRepository(id): "Server \(id) has no repository yet."

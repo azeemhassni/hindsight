@@ -5,16 +5,19 @@ import HindsightEngine
 import HindsightKeychain
 import HindsightProtocol
 
-let hindsightAgentVersion = "0.1.0"
+public let hindsightAgentVersion = "0.1.0"
 
 /// The background agent.
 ///
 /// It owns the schedule and every job, and it is the only writer of the
 /// catalog. The app is a client: closing the window must not stop a backup,
 /// and two processes writing the same SQLite file is a bug waiting to happen.
-@main
-struct AgentMain {
-    static func main() async {
+///
+/// The runtime lives in a library rather than in the executable so that the
+/// SwiftPM build and the app bundle's copy are the same code, built once. Two
+/// copies of this would drift.
+public enum AgentRuntime {
+    public static func run() async {
         let configuration = AgentConfiguration.load()
 
         let catalog: Catalog
@@ -45,14 +48,17 @@ struct AgentMain {
     }
 }
 
-final class AgentListenerDelegate: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
+public final class AgentListenerDelegate: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     private let core: AgentCore
 
-    init(core: AgentCore) {
+    public init(core: AgentCore) {
         self.core = core
     }
 
-    func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
+    public func listener(
+        _ listener: NSXPCListener,
+        shouldAcceptNewConnection connection: NSXPCConnection
+    ) -> Bool {
         // Anyone who can reach this service can drive backups and restores, so
         // the peer is pinned to this team's signature before anything else.
         if let team = ConnectionSecurity.teamIdentifierFromEnvironment {
@@ -69,12 +75,12 @@ final class AgentListenerDelegate: NSObject, NSXPCListenerDelegate, @unchecked S
     }
 }
 
-final class AgentServiceAdapter: NSObject, HindsightAgentService, @unchecked Sendable {
+public final class AgentServiceAdapter: NSObject, HindsightAgentService, @unchecked Sendable {
     private let core: AgentCore
     private weak var connection: NSXPCConnection?
     private var observerToken: UUID?
 
-    init(core: AgentCore, connection: NSXPCConnection) {
+    public init(core: AgentCore, connection: NSXPCConnection) {
         self.core = core
         self.connection = connection
         super.init()
@@ -97,7 +103,7 @@ final class AgentServiceAdapter: NSObject, HindsightAgentService, @unchecked Sen
         }
     }
 
-    func perform(_ request: Data, reply: @escaping @Sendable (Data?) -> Void) {
+    public func perform(_ request: Data, reply: @escaping @Sendable (Data?) -> Void) {
         Task { [core] in
             let decoded: AgentRequest
             do {
@@ -113,15 +119,15 @@ final class AgentServiceAdapter: NSObject, HindsightAgentService, @unchecked Sen
 }
 
 /// Owns the non-`Sendable` XPC proxy so that event delivery can be.
-final class ObserverSink: @unchecked Sendable {
+public final class ObserverSink: @unchecked Sendable {
     private let lock = NSLock()
     private weak var connection: NSXPCConnection?
 
-    init(connection: NSXPCConnection) {
+    public init(connection: NSXPCConnection) {
         self.connection = connection
     }
 
-    func send(_ data: Data) {
+    public func send(_ data: Data) {
         lock.lock()
         defer { lock.unlock() }
         (connection?.remoteObjectProxy as? HindsightAgentObserver)?.receive(data)
@@ -133,8 +139,8 @@ final class ObserverSink: @unchecked Sendable {
 /// Without this the agent would keep sleeping on a timer that was set before
 /// the machine suspended, and a backup due during sleep would be late by
 /// however long the lid was shut.
-enum SleepWakeObserver {
-    static func start(core: AgentCore) {
+public enum SleepWakeObserver {
+    public static func start(core: AgentCore) {
         let center = DistributedNotificationCenter.default()
         for name in ["com.apple.screenIsUnlocked", "com.apple.system.powersources.timeremaining"] {
             center.addObserver(

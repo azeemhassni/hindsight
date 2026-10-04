@@ -16,7 +16,9 @@ let package = Package(
         .library(name: "HindsightKeychain", targets: ["HindsightKeychain"]),
         .library(name: "HindsightCoolify", targets: ["HindsightCoolify"]),
         .library(name: "HindsightRestore", targets: ["HindsightRestore"]),
+        .library(name: "HindsightUI", targets: ["HindsightUI"]),
         .executable(name: "hindsight-agent", targets: ["hindsight-agent"]),
+        .library(name: "HindsightAgentKit", targets: ["HindsightAgentKit"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", exact: "7.11.1"),
@@ -55,6 +57,18 @@ let package = Package(
             swiftSettings: .common
         ),
         .target(
+            name: "HindsightUI",
+            dependencies: [
+                "HindsightCore",
+                "HindsightCatalog",
+                "HindsightCoolify",
+                "HindsightProtocol",
+                "HindsightRestore",
+                "HindsightSchedule",
+            ],
+            swiftSettings: .common
+        ),
+        .target(
             name: "HindsightRestore",
             dependencies: [
                 "HindsightCore",
@@ -82,6 +96,11 @@ let package = Package(
         ),
         .executableTarget(
             name: "hindsight-agent",
+            dependencies: ["HindsightAgentKit"],
+            swiftSettings: .common
+        ),
+        .target(
+            name: "HindsightAgentKit",
             dependencies: [
                 "HindsightCore",
                 "HindsightCatalog",
@@ -136,6 +155,11 @@ let package = Package(
         .testTarget(
             name: "HindsightCatalogTests",
             dependencies: ["HindsightCatalog"],
+            swiftSettings: .common
+        ),
+        .testTarget(
+            name: "HindsightUITests",
+            dependencies: ["HindsightUI"],
             swiftSettings: .common
         ),
         .testTarget(

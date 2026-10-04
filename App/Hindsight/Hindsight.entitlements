@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Not sandboxed: the app execs /usr/bin/ssh, writes repositories to
+	     volumes the person chooses, and supervises a bundled server binary. -->
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+	<!-- Shared with the agent so both can read the repository passwords. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)app.hindsight</string>
+	</array>
+	<key>com.apple.security.network.client</key>
+	<true/>
+</dict>
+</plist>

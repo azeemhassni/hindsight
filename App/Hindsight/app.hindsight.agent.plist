@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>app.hindsight.agent</string>
+	<key>BundleProgram</key>
+	<string>Contents/Library/LaunchAgents/hindsight-agent</string>
+	<!-- On demand: the app's first XPC call starts the agent, and launchd keeps
+	     it alive afterwards so scheduled backups run with the app closed. -->
+	<key>MachServices</key>
+	<dict>
+		<key>app.hindsight.agent</key>
+		<true/>
+	</dict>
+	<key>KeepAlive</key>
+	<true/>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<!-- Low I/O priority so a backup never makes the Mac feel slow. -->
+	<key>LowPriorityIO</key>
+	<true/>
+	<key>Nice</key>
+	<integer>5</integer>
+</dict>
+</plist>

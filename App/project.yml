@@ -1,0 +1,93 @@
+name: Hindsight
+options:
+  bundleIdPrefix: app.hindsight
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ${HINDSIGHT_TEAM_ID}
+    CODE_SIGN_STYLE: Manual
+    ENABLE_HARDENED_RUNTIME: YES
+    # Not sandboxed: the app execs /usr/bin/ssh, writes repositories to
+    # arbitrary volumes, and supervises a bundled server binary. See
+    # docs/ARCHITECTURE.md §4.
+    ENABLE_APP_SANDBOX: NO
+
+packages:
+  Hindsight:
+    path: ..
+
+targets:
+  Hindsight:
+    type: application
+    platform: macOS
+    sources:
+      - path: Hindsight
+        excludes:
+          - app.hindsight.agent.plist
+    dependencies:
+      - package: Hindsight
+        product: HindsightUI
+      - package: Hindsight
+        product: HindsightCatalog
+      - package: Hindsight
+        product: HindsightProtocol
+      - package: Hindsight
+        product: HindsightKeychain
+      - target: hindsight-agent
+        embed: true
+        codeSign: true
+        copy:
+          destination: wrapper
+          subpath: Contents/Library/LaunchAgents
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.hindsight
+        INFOPLIST_FILE: Hindsight/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Hindsight/Hindsight.entitlements
+        CODE_SIGN_IDENTITY: "Developer ID Application"
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
+    # Verifies the pinned digests before every build; a mismatch fails here
+    # rather than at the moment a backup needs the binary.
+    preBuildScripts:
+      - name: Verify vendored binaries
+        script: cd "$SRCROOT/.." && ./scripts/vendor.sh
+        basedOnDependencyAnalysis: false
+    postBuildScripts:
+      - name: Embed vendored binaries and the agent job description
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          resources="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
+          agents="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchAgents"
+          mkdir -p "$resources" "$agents"
+          # SMAppService.agent(plistName:) looks for the job description beside
+          # the executable in Contents/Library/LaunchAgents, not in Resources.
+          ditto "$SRCROOT/Hindsight/app.hindsight.agent.plist" \
+            "$agents/app.hindsight.agent.plist"
+          for binary in "$SRCROOT/../vendor/bin/"*; do
+            [ -f "$binary" ] || continue
+            ditto "$binary" "$resources/$(basename "$binary")"
+          done
+
+  hindsight-agent:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Agent
+    dependencies:
+      - package: Hindsight
+        product: HindsightAgentKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.hindsight.agent
+        INFOPLIST_FILE: Agent/Info.plist
+        CODE_SIGN_IDENTITY: "Developer ID Application"
+        SKIP_INSTALL: YES
