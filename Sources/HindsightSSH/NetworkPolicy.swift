@@ -31,6 +31,13 @@ public struct NetworkPolicy: Sendable, Hashable {
                 .map { $0.trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.isEmpty }
         )
+        // A release build can be pinned to local targets too, which is what a
+        // development agent running outside the test suite needs: a catalog
+        // full of example servers must not be able to reach for them.
+        if environment["HINDSIGHT_SSH_LOCAL_ONLY"] == "1" {
+            return NetworkPolicy(mode: .localTestTargetsOnly, explicitlyAllowedHosts: allowed)
+        }
+
         #if DEBUG
         return NetworkPolicy(mode: .localTestTargetsOnly, explicitlyAllowedHosts: allowed)
         #else

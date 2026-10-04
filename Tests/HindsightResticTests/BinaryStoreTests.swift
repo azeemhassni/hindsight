@@ -207,6 +207,10 @@ struct SnapshotBrowsingTests {
         try Data("two\n".utf8).write(to: data.appendingPathComponent("two.txt"))
         try Data("leaf\n".utf8).write(to: data.appendingPathComponent("nested/leaf.txt"))
         try Data("deep\n".utf8).write(to: data.appendingPathComponent("nested/deeper/deep.txt"))
+        // Bytes that are not valid UTF-8, for the extraction test: a file that
+        // survives a round trip through a `String` proves nothing.
+        try Data([0xFF, 0xD8, 0xFF, 0x00, 0x01, 0x80, 0xFE])
+            .write(to: data.appendingPathComponent("binary.bin"))
 
         let password = Secret(label: "repo", value: "browse-test")
         let client = ResticClient(
@@ -238,7 +242,7 @@ struct SnapshotBrowsingTests {
         }
 
         let children = try await client.children(ofSnapshot: snapshot, path: path)
-        #expect(children.map(\.name).sorted() == ["nested", "one.txt", "two.txt"])
+        #expect(children.map(\.name).sorted() == ["binary.bin", "nested", "one.txt", "two.txt"])
         // Directories first.
         #expect(children.first?.isDirectory == true)
         // And nothing from deeper in the tree.
@@ -259,5 +263,39 @@ struct SnapshotBrowsingTests {
             .appendingPathComponent("hindsight-dump-\(UUID().uuidString)")
         try await client.dumpFile(snapshot: snapshot, path: file.path, to: destination)
         #expect(try String(contentsOf: destination, encoding: .utf8) == "one")
+    }
+
+    @Test("extracts a file byte for byte, including bytes that are not text", .enabled(if: resticAvailable))
+    func extractsOneFileExactly() async throws {
+        let (client, snapshot) = try await Self.makeRepository()
+        let nodes = try await client.list(snapshot: snapshot)
+        let file = try #require(nodes.first { $0.name == "binary.bin" })
+
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("hindsight-extract-\(UUID().uuidString)")
+        let written = try await client.extractFile(
+            snapshot: snapshot,
+            path: file.path,
+            toDirectory: directory
+        )
+
+        // restic rebuilds the path inside the target directory.
+        #expect(written.path.hasPrefix(directory.path))
+        #expect(written.lastPathComponent == "binary.bin")
+        #expect(try Data(contentsOf: written) == Data([0xFF, 0xD8, 0xFF, 0x00, 0x01, 0x80, 0xFE]))
+    }
+
+    @Test("says so rather than inventing a file when the path is not in the snapshot", .enabled(if: resticAvailable))
+    func refusesAMissingPath() async throws {
+        let (client, snapshot) = try await Self.makeRepository()
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("hindsight-extract-\(UUID().uuidString)")
+        await #expect(throws: (any Error).self) {
+            try await client.extractFile(
+                snapshot: snapshot,
+                path: "/no/such/path",
+                toDirectory: directory
+            )
+        }
     }
 }

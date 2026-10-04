@@ -6,6 +6,19 @@ public enum JobKind: Hashable, Sendable, Codable {
     case check(readDataSubset: String?)
     case restore
     case copy
+
+    /// A stable short name, used in the catalog and over the protocol.
+    public var name: String {
+        switch self {
+        case .backup: "backup"
+        case .databaseDump: "database dump"
+        case .metadata: "metadata"
+        case .forgetAndPrune: "forget and prune"
+        case .check: "integrity check"
+        case .restore: "restore"
+        case .copy: "second copy"
+        }
+    }
 }
 
 public enum JobState: String, Hashable, Sendable, Codable, CaseIterable {

@@ -60,6 +60,9 @@ public struct RepositoryRecord: Codable, FetchableRecord, PersistableRecord, Has
     /// Which slice of `check --read-data-subset` runs next.
     public var checkRotationIndex: Int
     public var checkRotationDivisor: Int
+    /// Upload ceiling for backups to this repository, in KiB/s. Nil means no
+    /// limit, which is restic's own default.
+    public var bandwidthLimitKiB: Int?
 
     public init(
         id: String,
@@ -69,7 +72,8 @@ public struct RepositoryRecord: Codable, FetchableRecord, PersistableRecord, Has
         lastPrunedAt: Date? = nil,
         lastCheckedAt: Date? = nil,
         checkRotationIndex: Int = 0,
-        checkRotationDivisor: Int = 4
+        checkRotationDivisor: Int = 4,
+        bandwidthLimitKiB: Int? = nil
     ) {
         self.id = id
         self.serverId = serverId
@@ -79,6 +83,7 @@ public struct RepositoryRecord: Codable, FetchableRecord, PersistableRecord, Has
         self.lastCheckedAt = lastCheckedAt
         self.checkRotationIndex = checkRotationIndex
         self.checkRotationDivisor = checkRotationDivisor
+        self.bandwidthLimitKiB = bandwidthLimitKiB
     }
 }
 
@@ -308,5 +313,40 @@ public struct IntegrityCheckRecord: Codable, FetchableRecord, PersistableRecord,
         self.subsetIndex = subsetIndex
         self.subsetDivisor = subsetDivisor
         self.startedAt = startedAt
+    }
+}
+
+public struct CoolifyResourceRecord: Codable, FetchableRecord, PersistableRecord, Hashable, Sendable {
+    public static let databaseTableName = "coolifyResource"
+
+    public var uuid: String
+    public var serverId: String
+    public var kind: String
+    public var name: String
+    public var projectName: String?
+    public var environmentName: String?
+    /// Which path produced this: the API, container labels, or Coolify's own
+    /// database. Kept so the interface can say how complete the picture is.
+    public var discoverySource: String
+    public var lastSeenAt: Date
+
+    public init(
+        uuid: String,
+        serverId: String,
+        kind: String,
+        name: String,
+        projectName: String?,
+        environmentName: String?,
+        discoverySource: String,
+        lastSeenAt: Date = Date()
+    ) {
+        self.uuid = uuid
+        self.serverId = serverId
+        self.kind = kind
+        self.name = name
+        self.projectName = projectName
+        self.environmentName = environmentName
+        self.discoverySource = discoverySource
+        self.lastSeenAt = lastSeenAt
     }
 }

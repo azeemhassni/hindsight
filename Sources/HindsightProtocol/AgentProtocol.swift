@@ -38,6 +38,211 @@ public enum AgentRequest: Codable, Sendable, Hashable {
     case trustHostKey(host: String, port: Int, keyType: String, base64Key: String)
     case probeServer(AddServerDraft)
     case addServer(AddServerDraft)
+    /// Looks for Coolify resources on a server. Runs on the agent because it
+    /// needs the ssh connection, and caches what it finds in the catalog.
+    case discoverCoolify(serverID: String)
+    case backUpResource(serverID: String, resourceUUID: String)
+    /// The jobs and their log lines, for the activity view.
+    case jobHistory(serverID: String, limit: Int)
+    case jobLog(jobID: String)
+    /// The settings as they stand, for the settings view to start from.
+    case serverSettings(serverID: String)
+}
+
+/// A server's current settings. The Coolify token is reported as set or not
+/// set, never returned: it lives in the Keychain and has no reason to travel.
+public struct ServerSettingsReport: Codable, Sendable, Hashable {
+    public var serverID: String
+    /// Encoded `Cadence`, mirroring `ServerSettingsUpdate`.
+    public var cadence: Data?
+    public var onlyOnACPower: Bool
+    public var keepWithinHours: Int
+    public var keepDaily: Int
+    public var keepWeekly: Int
+    public var keepMonthly: Int
+    public var keepYearly: Int
+    public var excludePatterns: [String]
+    public var bandwidthLimitKiB: Int?
+    public var checkRotationDivisor: Int
+    public var repositoryPath: String
+    public var coolifyTokenIsSet: Bool
+
+    public init(
+        serverID: String,
+        cadence: Data?,
+        onlyOnACPower: Bool,
+        keepWithinHours: Int,
+        keepDaily: Int,
+        keepWeekly: Int,
+        keepMonthly: Int,
+        keepYearly: Int,
+        excludePatterns: [String],
+        bandwidthLimitKiB: Int?,
+        checkRotationDivisor: Int,
+        repositoryPath: String,
+        coolifyTokenIsSet: Bool
+    ) {
+        self.serverID = serverID
+        self.cadence = cadence
+        self.onlyOnACPower = onlyOnACPower
+        self.keepWithinHours = keepWithinHours
+        self.keepDaily = keepDaily
+        self.keepWeekly = keepWeekly
+        self.keepMonthly = keepMonthly
+        self.keepYearly = keepYearly
+        self.excludePatterns = excludePatterns
+        self.bandwidthLimitKiB = bandwidthLimitKiB
+        self.checkRotationDivisor = checkRotationDivisor
+        self.repositoryPath = repositoryPath
+        self.coolifyTokenIsSet = coolifyTokenIsSet
+    }
+}
+
+/// A Coolify resource, as the protocol carries it.
+public struct CoolifyResourceReport: Codable, Sendable, Hashable, Identifiable {
+    public var uuid: String
+    public var name: String
+    /// "application", "service" or "database".
+    public var kind: String
+    public var projectName: String?
+    public var environmentName: String?
+    public var engine: String?
+    public var isRunning: Bool
+    public var volumeCount: Int
+    public var lastBackupAt: Date?
+
+    public var id: String { uuid }
+
+    public init(
+        uuid: String,
+        name: String,
+        kind: String,
+        projectName: String?,
+        environmentName: String?,
+        engine: String?,
+        isRunning: Bool,
+        volumeCount: Int,
+        lastBackupAt: Date?
+    ) {
+        self.uuid = uuid
+        self.name = name
+        self.kind = kind
+        self.projectName = projectName
+        self.environmentName = environmentName
+        self.engine = engine
+        self.isRunning = isRunning
+        self.volumeCount = volumeCount
+        self.lastBackupAt = lastBackupAt
+    }
+}
+
+public struct CoolifyTreeReport: Codable, Sendable, Hashable {
+    public var resources: [CoolifyResourceReport]
+    /// "api", "containerLabels" or "database".
+    public var source: String
+    public var sourceExplanation: String
+    public var coolifyVersion: String?
+    /// True when the source returned nothing but could not prove the instance
+    /// is empty — an API token scoped to a team with no servers, say.
+    public var mayBeIncomplete: Bool
+
+    public init(
+        resources: [CoolifyResourceReport],
+        source: String,
+        sourceExplanation: String,
+        coolifyVersion: String?,
+        mayBeIncomplete: Bool
+    ) {
+        self.resources = resources
+        self.source = source
+        self.sourceExplanation = sourceExplanation
+        self.coolifyVersion = coolifyVersion
+        self.mayBeIncomplete = mayBeIncomplete
+    }
+
+    /// Grouped for display: project, then environment.
+    public var grouped: [(project: String, environments: [(name: String, resources: [CoolifyResourceReport])])] {
+        var byProject: [String: [String: [CoolifyResourceReport]]] = [:]
+        for resource in resources {
+            let project = resource.projectName ?? "Ungrouped"
+            let environment = resource.environmentName ?? "default"
+            byProject[project, default: [:]][environment, default: []].append(resource)
+        }
+        return byProject.keys.sorted().map { project in
+            let environments = (byProject[project] ?? [:]).keys.sorted().map { environment in
+                (
+                    name: environment,
+                    resources: (byProject[project]?[environment] ?? [])
+                        .sorted { $0.name < $1.name }
+                )
+            }
+            return (project: project, environments: environments)
+        }
+    }
+}
+
+/// One job in the history, with enough to judge it at a glance.
+public struct JobReport: Codable, Sendable, Hashable, Identifiable {
+    public var id: String
+    public var kind: String
+    public var state: String
+    public var queuedAt: Date
+    public var startedAt: Date?
+    public var finishedAt: Date?
+    public var bytesProcessed: Int64?
+    public var bytesAdded: Int64?
+    public var filesNew: Int?
+    public var filesChanged: Int?
+    public var errorText: String?
+    public var resourceUUID: String?
+
+    public init(
+        id: String,
+        kind: String,
+        state: String,
+        queuedAt: Date,
+        startedAt: Date?,
+        finishedAt: Date?,
+        bytesProcessed: Int64?,
+        bytesAdded: Int64?,
+        filesNew: Int?,
+        filesChanged: Int?,
+        errorText: String?,
+        resourceUUID: String?
+    ) {
+        self.id = id
+        self.kind = kind
+        self.state = state
+        self.queuedAt = queuedAt
+        self.startedAt = startedAt
+        self.finishedAt = finishedAt
+        self.bytesProcessed = bytesProcessed
+        self.bytesAdded = bytesAdded
+        self.filesNew = filesNew
+        self.filesChanged = filesChanged
+        self.errorText = errorText
+        self.resourceUUID = resourceUUID
+    }
+
+    public var succeeded: Bool { state == "succeeded" }
+    public var isFinished: Bool { finishedAt != nil }
+}
+
+public struct JobLogLine: Codable, Sendable, Hashable, Identifiable {
+    public var sequence: Int
+    public var at: Date
+    /// "debug", "info", "warning" or "error".
+    public var level: String
+    public var message: String
+
+    public var id: Int { sequence }
+
+    public init(sequence: Int, at: Date, level: String, message: String) {
+        self.sequence = sequence
+        self.at = at
+        self.level = level
+        self.message = message
+    }
 }
 
 /// A server being added, before it exists in the catalog.
@@ -208,6 +413,10 @@ public enum AgentResponse: Codable, Sendable, Hashable {
     case hostKey(HostKeyReport)
     case probe(ServerProbeReport)
     case serverAdded(serverID: String)
+    case coolifyTree(CoolifyTreeReport)
+    case jobs([JobReport])
+    case jobLog([JobLogLine])
+    case settings(ServerSettingsReport)
     case done
     case failed(message: String)
 }

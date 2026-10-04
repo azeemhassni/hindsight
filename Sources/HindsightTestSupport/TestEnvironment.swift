@@ -274,3 +274,51 @@ public enum CoolifyTestEnvironment {
         return (client, destination)
     }
 }
+
+extension CoolifyTestEnvironment {
+    /// The VM as a `Server`, for tests that need a plan rather than only a
+    /// connection.
+    public static func server(id: String = "coolify-vm") throws -> Server {
+        try Server(
+            id: try ServerID(validating: id),
+            name: "Coolify VM",
+            endpoint: try SSHEndpoint(host: host ?? "127.0.0.1", port: port, user: user),
+            authentication: .existingKey(path: keyPath ?? ""),
+            privilege: .root
+        )
+    }
+}
+
+extension CoolifyTestEnvironment {
+    /// Whether the connection to the VM can carry a reverse tunnel.
+    ///
+    /// OrbStack's ssh gateway on 127.0.0.1 refuses remote port forwarding
+    /// outright, and every backup needs one. Tests that back something up skip
+    /// on this rather than failing: the limitation is the hypervisor's, and a
+    /// red test would claim Hindsight is broken when it is not.
+    public static var supportsReverseForwarding: Bool {
+        guard isAvailable, let host, let key = keyPath else { return false }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = [
+            "-p", String(port),
+            "-i", key,
+            "-o", "BatchMode=yes",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "ExitOnForwardFailure=yes",
+            "-o", "ConnectTimeout=5",
+            "-R", "0:127.0.0.1:1",
+            "\(user)@\(host)",
+            "true",
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            return false
+        }
+        process.waitUntilExit()
+        return process.terminationStatus == 0
+    }
+}

@@ -425,3 +425,46 @@ extension Catalog {
         }
     }
 }
+
+extension Catalog {
+    /// Replaces what is known about a server's Coolify resources.
+    ///
+    /// Resources that have gone are removed rather than left behind: a stale
+    /// entry would offer a backup of something that no longer exists. Their
+    /// snapshots are untouched — history outlives the resource, and is still
+    /// reachable by tag.
+    public func replaceCoolifyResources(
+        _ resources: [CoolifyResourceRecord],
+        forServer id: ServerID
+    ) throws {
+        try write { database in
+            try database.execute(
+                sql: "DELETE FROM coolifyResource WHERE serverId = ?",
+                arguments: [id.value]
+            )
+            for resource in resources {
+                try resource.insert(database)
+            }
+        }
+    }
+
+    public func coolifyResources(forServer id: ServerID) throws -> [CoolifyResourceRecord] {
+        try read { database in
+            try CoolifyResourceRecord
+                .filter(Column("serverId") == id.value)
+                .order(Column("projectName"), Column("environmentName"), Column("name"))
+                .fetchAll(database)
+        }
+    }
+}
+
+extension CatalogReader {
+    public func coolifyResources(forServer id: ServerID) throws -> [CoolifyResourceRecord] {
+        try read { database in
+            try CoolifyResourceRecord
+                .filter(Column("serverId") == id.value)
+                .order(Column("projectName"), Column("environmentName"), Column("name"))
+                .fetchAll(database)
+        }
+    }
+}

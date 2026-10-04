@@ -46,7 +46,8 @@ public struct CoolifyResourceBackup: Sendable {
         repositoryPassword: Secret,
         on destination: SSHDestination,
         facts: RemoteFacts,
-        databaseCredentials: [String: Secret] = [:]
+        databaseCredentials: [String: Secret] = [:],
+        bandwidthLimitKiB: Int? = nil
     ) async -> CoolifyResourceOutcome {
         var outcome = CoolifyResourceOutcome(
             resourceUUID: resource.uuid,
@@ -68,6 +69,9 @@ public struct CoolifyResourceBackup: Sendable {
             outcome.failure = "none of this resource's paths exist on the server"
         } else {
             var arguments = ["backup", "--json", "--retry-lock", "5m"]
+            if let bandwidthLimitKiB, bandwidthLimitKiB > 0 {
+                arguments += ["--limit-upload", String(bandwidthLimitKiB)]
+            }
             for tag in resource.snapshotTags { arguments += ["--tag", tag.rawValue] }
             arguments += present
 

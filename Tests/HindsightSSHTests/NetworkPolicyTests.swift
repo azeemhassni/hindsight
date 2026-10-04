@@ -63,3 +63,23 @@ struct NetworkPolicyTests {
         #expect(policy.explicitlyAllowedHosts == ["a.example", "b.example"])
     }
 }
+
+@Suite("Pinning a release build to local targets")
+struct LocalOnlySwitchTests {
+    @Test("the environment can restrict a build that would otherwise be unrestricted")
+    func environmentCanRestrict() throws {
+        let policy = NetworkPolicy.fromEnvironment(["HINDSIGHT_SSH_LOCAL_ONLY": "1"])
+        #expect(throws: Never.self) { try policy.check(host: "127.0.0.1") }
+        #expect(throws: (any Error).self) { try policy.check(host: "198.51.100.1") }
+    }
+
+    @Test("an explicitly allowed host is still allowed under that switch")
+    func allowListStillApplies() throws {
+        let policy = NetworkPolicy.fromEnvironment([
+            "HINDSIGHT_SSH_LOCAL_ONLY": "1",
+            "HINDSIGHT_SSH_ALLOW_HOSTS": "198.51.100.7",
+        ])
+        #expect(throws: Never.self) { try policy.check(host: "198.51.100.7") }
+        #expect(throws: (any Error).self) { try policy.check(host: "198.51.100.8") }
+    }
+}

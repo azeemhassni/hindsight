@@ -358,6 +358,10 @@ extension ResticClient {
 
     /// Writes one file out of a snapshot, for Quick Look or a single-file
     /// restore onto the Mac.
+    ///
+    /// Only for text: the output passes through a `String`, so bytes that are
+    /// not valid UTF-8 do not survive. `extractFile` is the one to use for
+    /// anything else.
     public func dumpFile(
         snapshot: SnapshotID,
         path: String,
@@ -368,5 +372,40 @@ extension ResticClient {
             operation: "dump"
         )
         try Data(result.standardOutput.utf8).write(to: destination, options: .atomic)
+    }
+
+    /// Extracts one file byte-for-byte, by having restic write it rather than
+    /// passing it through this process.
+    ///
+    /// Returns where the file landed: restore rebuilds the path inside the
+    /// target directory, so a file at `/etc/hosts` appears at
+    /// `<directory>/etc/hosts`.
+    @discardableResult
+    public func extractFile(
+        snapshot: SnapshotID,
+        path: String,
+        toDirectory directory: URL,
+        timeout: Duration? = .seconds(300)
+    ) async throws -> URL {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        _ = try await run(
+            [
+                "restore", snapshot.value,
+                "--target", directory.path,
+                "--include", path,
+            ],
+            operation: "restore",
+            timeout: timeout
+        )
+        let destination = directory.appendingPathComponent(
+            path.hasPrefix("/") ? String(path.dropFirst()) : path
+        )
+        guard FileManager.default.fileExists(atPath: destination.path) else {
+            throw ResticError.commandFailed(
+                operation: "restore",
+                details: "restic reported success but \(path) is not in the target directory."
+            )
+        }
+        return destination
     }
 }

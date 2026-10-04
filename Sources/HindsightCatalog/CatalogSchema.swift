@@ -201,6 +201,14 @@ public enum CatalogSchema {
             }
         }
 
+        // Added after v1 shipped, so a new migration rather than an edit to
+        // the original: an existing catalog has to keep opening.
+        migrator.registerMigration("v2-bandwidth-limit") { database in
+            try database.alter(table: "repository") { table in
+                table.add(column: "bandwidthLimitKiB", .integer)
+            }
+        }
+
         return migrator
     }
 }
