@@ -3,11 +3,16 @@
 Running list. Resolved items stay for the record; open items are what I need
 from you, batched for the end of the project rather than blocking progress.
 
-## Open
+## Open — for you
 
 | # | Topic | What I need | What I am doing meanwhile |
 |---|---|---|---|
-| 1 | Signing identity | The Developer ID team identifier and the bundle identifier you want. The keychain access group and the XPC code-signing requirement both embed the team id. | Placeholders in `App/project.yml`: bundle id `app.hindsight.Hindsight`, team read from `HINDSIGHT_TEAM_ID`. Local builds sign ad-hoc. |
+| 1 | Signing identity | Your Developer ID team identifier, and the bundle identifier you want. Both the keychain access group and the XPC code-signing requirement embed the team id, so they cannot be finished without it. | Bundle id `app.hindsight`, team read from `HINDSIGHT_TEAM_ID`, unsigned local builds. An unsigned build cannot register the LaunchAgent, and says so. |
+| 2 | Zero-downtime restore | Whether to revisit it if Coolify ever exposes volume rewiring through its API. Today it would require writing to Coolify's private database, which I have refused. | The mode is shown as unavailable with the reason; `clone` covers the underlying need. |
+| 3 | Coolify coverage | Only a **database** resource was deployed in the test VM. Application and service labels are inferred from that plus Coolify's source, not observed. Deploying an application needs a git repository and a few minutes of build. | Documented as unverified in `docs/COOLIFY.md` §10 rather than assumed. |
+| 4 | Restoring a Coolify instance | Not yet exercised end to end into a fresh VM. It is the flow that matters most if a Coolify server is lost. | The plan's paths are verified individually against a live install. |
+| 5 | Notifications | Whether failures should also mail or push somewhere, or stay local notifications only. | Not implemented yet. |
+| 6 | Wiring order | Which of the unwired pieces in `ARCHITECTURE.md` §20 you want first. My own order would be restore from the interface, then dumps inside a scheduled backup, then maintenance scheduling. | Nothing is stubbed to look finished. |
 
 ## Resolved
 

@@ -5,7 +5,10 @@ Time Machine for servers: a background agent runs scheduled jobs, a SwiftUI app
 browses history and drives restores, and Coolify-managed servers get
 per-resource backup and restore.
 
-Status: design document for review. Nothing here is implemented yet.
+Status: implemented and corrected against reality. Where measurement
+contradicted the original design, this document was updated and the reason
+recorded in `docs/DECISIONS.md`. `docs/CHANGELOG.md` says what each milestone
+delivered; §20 lists what is built but not yet connected to the interface.
 
 ---
 
@@ -787,3 +790,44 @@ Resolved, 2026-10-04.
    app` signs with the identity from `HINDSIGHT_SIGNING_IDENTITY`, falling back
    to ad-hoc only for local unsigned test builds, which cannot register a
    LaunchAgent and say so.
+
+
+---
+
+## 20. What is built, and what is not yet wired
+
+The engine is complete and verified against real servers. The app is a working
+shell over it, and some of the wiring between the two is still missing. Stated
+plainly here rather than left to be discovered.
+
+**Working end to end, with tests against real targets**
+
+- Backups: SSH transport, host-key pinning, append-only rest-server over a
+  reverse tunnel, live progress, metadata snapshots, incremental verification.
+- Retention and integrity: a policy engine that agrees with restic exactly,
+  prune, check, the read-data rotation, corruption detection.
+- Restore: planning, mode availability with reasons, safety snapshot, exact
+  preview, byte-for-byte restore, undo, staged swap, hard exclusions.
+- Database dumps: detection, logical dumps streamed into restic, failure
+  reporting.
+- Coolify: discovery from labels and from the API, agreeing on the same
+  install; the instance plan checked against a live install.
+- Second copy, scheduling, the catalog, the Keychain, and the agent's XPC
+  surface.
+
+**Built and tested, but not yet called from a running app**
+
+| Piece | State |
+|---|---|
+| Database dumps in a scheduled backup | `DatabaseBackup` works and is tested; `BackupEngine.run` does not yet call it, so a scheduled backup captures files and metadata but not dumps. |
+| Maintenance scheduling | `MaintenanceEngine` works; the agent answers `runMaintenance` and `checkIntegrity` with "not available yet" rather than pretending. |
+| Restore from the interface | The planner, executor and wizard all exist and are tested; there is no XPC request that runs a restore, so restores are not yet reachable from the app. |
+| Per-resource Coolify backup | Discovery and tagging work; no job yet backs up a single resource. |
+| Snapshot browser in the app | The tree, search and diff logic are tested; the app does not yet feed them from `restic ls`. |
+| Settings persistence | The settings form is built; its bindings are not yet written to the catalog. |
+| Onboarding actions | The state machine is tested; the app does not yet implement the per-step actions behind it. |
+| Notifications | Not implemented. |
+| Recovery kit export from the UI | The kit is generated and tested; the save dialog is not wired. |
+
+None of this is hidden behind a stub that reports success. Where a path is not
+implemented, it says so.
