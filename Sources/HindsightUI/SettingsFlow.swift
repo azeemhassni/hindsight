@@ -162,3 +162,40 @@ public final class SettingsFlow {
         return succeeded
     }
 }
+
+extension SettingsFlow {
+    /// Builds a flow from what the agent reports, so the view starts from the
+    /// settings in force rather than from defaults that would overwrite them.
+    public static func from(
+        _ report: ServerSettingsReport,
+        model: AppModel
+    ) -> SettingsFlow {
+        let cadence = report.cadence
+            .flatMap { try? JSONDecoder().decode(Cadence.self, from: $0) }
+            ?? .everyHours(6)
+        // `RetentionPolicy` refuses a policy that keeps nothing, and a report
+        // from an older catalog could be exactly that; falling back to the
+        // default beats a crash in a settings pane.
+        let retention = (try? RetentionPolicy(
+            scope: .filesystem,
+            keepWithinHours: report.keepWithinHours,
+            keepDaily: report.keepDaily,
+            keepWeekly: report.keepWeekly,
+            keepMonthly: report.keepMonthly,
+            keepYearly: report.keepYearly
+        )) ?? .filesystemDefault
+
+        return SettingsFlow(
+            model: model,
+            serverID: report.serverID,
+            cadence: cadence,
+            onlyOnACPower: report.onlyOnACPower,
+            retention: retention,
+            bandwidthLimitKiB: report.bandwidthLimitKiB,
+            repositoryPath: report.repositoryPath,
+            coolifyTokenIsSet: report.coolifyTokenIsSet,
+            checkRotationDivisor: report.checkRotationDivisor,
+            excludePatterns: report.excludePatterns
+        )
+    }
+}

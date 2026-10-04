@@ -104,6 +104,16 @@ public struct RestoreSheetView: View {
                         }
                         Spacer()
                     }
+                    // On the label rather than the button: a custom button
+                    // label is otherwise read out as a bare "button", and a
+                    // list of thirty of those is no way to choose which
+                    // snapshot to restore.
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(
+                        "\(formatted(snapshot.time)), \(Format.bytes(snapshot.sizeBytes)), "
+                            + snapshot.kind.rawValue
+                            + (flow.snapshotID == snapshot.id.value ? ", chosen" : "")
+                    )
                 }
                 .buttonStyle(.plain)
             }

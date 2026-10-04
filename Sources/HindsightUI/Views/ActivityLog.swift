@@ -32,7 +32,6 @@ public struct ActivityLogView: View {
                 .listStyle(.inset)
             }
         }
-        .navigationTitle("Activity")
     }
 
     private var toolbar: some View {

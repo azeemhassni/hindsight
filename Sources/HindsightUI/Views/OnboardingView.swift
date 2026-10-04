@@ -10,8 +10,13 @@ public struct OnboardingView: View {
     let onDetect: () async -> Void
     let onChooseRepository: () -> Void
     let onStartFirstBackup: () async -> Void
-    let onExportRecoveryKit: () -> Void
+    let onExportRecoveryKit: () async -> Void
+    /// Advancing is the controller's to do, not the view's: leaving a step can
+    /// mean trusting a host key or creating the server.
+    let onContinue: () async -> Void
     let onFinish: () -> Void
+    let errorText: String?
+    let isBusy: Bool
 
     public init(
         state: Binding<OnboardingState>,
@@ -21,8 +26,11 @@ public struct OnboardingView: View {
         onDetect: @escaping () async -> Void,
         onChooseRepository: @escaping () -> Void,
         onStartFirstBackup: @escaping () async -> Void,
-        onExportRecoveryKit: @escaping () -> Void,
-        onFinish: @escaping () -> Void
+        onExportRecoveryKit: @escaping () async -> Void,
+        onContinue: @escaping () async -> Void,
+        onFinish: @escaping () -> Void,
+        errorText: String? = nil,
+        isBusy: Bool = false
     ) {
         _state = state
         self.sudoersResticPath = sudoersResticPath
@@ -32,7 +40,10 @@ public struct OnboardingView: View {
         self.onChooseRepository = onChooseRepository
         self.onStartFirstBackup = onStartFirstBackup
         self.onExportRecoveryKit = onExportRecoveryKit
+        self.onContinue = onContinue
         self.onFinish = onFinish
+        self.errorText = errorText
+        self.isBusy = isBusy
     }
 
     public var body: some View {
@@ -67,10 +78,18 @@ public struct OnboardingView: View {
         case .connectionDetails:
             Form {
                 TextField("Host", text: $state.host)
-                TextField("Port", value: $state.port, format: .number)
+                // A string binding rather than a number formatter: a
+                // formatted field commits only when it loses focus, so a port
+                // typed and then confirmed could be read as the old one.
+                TextField("Port", text: portText)
                 TextField("User", text: $state.user)
                 TextField("Name (optional)", text: $state.name)
                     .help("Defaults to the host")
+                Toggle("Use a key I already have", isOn: usesExistingKey)
+                if state.identityFile != nil {
+                    TextField("Key file", text: identityFileText)
+                        .help("A private key file on this Mac, such as ~/.ssh/id_ed25519")
+                }
             }
             .formStyle(.columns)
             .frame(maxWidth: 420)
@@ -185,7 +204,7 @@ public struct OnboardingView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
                 Button("Save the recovery kit…", systemImage: "square.and.arrow.down") {
-                    onExportRecoveryKit()
+                    Task { await onExportRecoveryKit() }
                 }
                 .buttonStyle(.borderedProminent)
 
@@ -200,11 +219,41 @@ public struct OnboardingView: View {
         }
     }
 
+    private var portText: Binding<String> {
+        Binding(
+            get: { String(state.port) },
+            set: { text in
+                let digits = text.filter(\.isNumber)
+                state.port = Int(digits.prefix(5)) ?? 0
+            }
+        )
+    }
+
+    private var usesExistingKey: Binding<Bool> {
+        Binding(
+            get: { state.identityFile != nil },
+            set: { state.identityFile = $0 ? (state.identityFile ?? "") : nil }
+        )
+    }
+
+    private var identityFileText: Binding<String> {
+        Binding(
+            get: { state.identityFile ?? "" },
+            set: { state.identityFile = $0 }
+        )
+    }
+
     private var footer: some View {
         HStack {
             Button("Back") { state.goBack() }
-                .disabled(state.step == .connectionDetails)
-            if let reason = state.blockingReason {
+                .disabled(state.step == .connectionDetails || isBusy)
+            if let errorText {
+                Label(errorText, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.red)
+                    .font(.callout)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let reason = state.blockingReason {
                 Text(reason)
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -214,9 +263,10 @@ public struct OnboardingView: View {
             if state.step == .done {
                 Button("Finish", action: onFinish).buttonStyle(.borderedProminent)
             } else {
-                Button("Continue") { state.advance() }
+                if isBusy { ProgressView().controlSize(.small) }
+                Button("Continue") { Task { await onContinue() } }
                     .buttonStyle(.borderedProminent)
-                    .disabled(!state.canAdvance)
+                    .disabled(!state.canAdvance || isBusy)
             }
         }
         .padding(20)

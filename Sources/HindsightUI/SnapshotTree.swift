@@ -149,3 +149,31 @@ public struct SnapshotDiffEntry: Sendable, Hashable, Identifiable {
         self.change = change
     }
 }
+
+extension SnapshotTreeBuilder {
+    /// Keeps the nodes whose name matches, and any folder on the way to one.
+    ///
+    /// Only within what has been loaded: the tree is read a directory at a
+    /// time, so a search cannot reach files nobody has opened yet.
+    public static func search(
+        _ nodes: [SnapshotTreeNode],
+        for term: String
+    ) -> [SnapshotTreeNode] {
+        let needle = term.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !needle.isEmpty else { return nodes }
+
+        return nodes.compactMap { node -> SnapshotTreeNode? in
+            let matchedChildren = search(node.children ?? [], for: needle)
+            let matchesItself = node.name.lowercased().contains(needle)
+            guard matchesItself || !matchedChildren.isEmpty else { return nil }
+
+            var copy = node
+            // A folder that matched by name keeps whatever it held, so opening
+            // it still shows its contents.
+            if !matchedChildren.isEmpty || !matchesItself {
+                copy.children = matchedChildren
+            }
+            return copy
+        }
+    }
+}

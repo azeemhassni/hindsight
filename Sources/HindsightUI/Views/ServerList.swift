@@ -94,7 +94,13 @@ struct ServerRow: View {
     private var accessibilityLabel: String {
         var parts = [server.name, server.health.accessibilityDescription]
         if let job {
-            parts.append("Backing up, \(Format.percent(job.percentDone)) done.")
+            // A running job with no progress yet reads as "Backing up." rather
+            // than "Backing up, — done.", which is what the dash renders as.
+            if let percent = job.percentDone {
+                parts.append("Backing up, \(Format.percent(percent)) done.")
+            } else {
+                parts.append("Backing up.")
+            }
         } else {
             parts.append("Last backup \(Format.age(of: server.lastBackupAt)).")
         }

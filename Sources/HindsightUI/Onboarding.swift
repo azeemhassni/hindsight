@@ -74,6 +74,8 @@ public struct OnboardingState: Sendable, Hashable {
     public var host: String = ""
     public var port: Int = 22
     public var user: String = "root"
+    /// Path to a key the person already has, or nil to let Hindsight make one.
+    public var identityFile: String?
     public var name: String = ""
     public var hostKeyFingerprint: String?
     public var hostKeyConfirmed = false

@@ -23,9 +23,24 @@ public final class AppModel {
     public var status: AgentStatus?
     public var activity: [ActivityEntry] = []
     public var selectedServerID: String?
+    /// Which part of the selected server is on screen. In the model rather
+    /// than the view so the View menu can move between them.
+    public var tab: ServerTab = .overview
     public var lastError: String?
     /// The most recent restore outcome, so an open sheet can reflect it.
     public var lastRestoreEvent: AgentEvent?
+    /// Coolify resources per server, as last discovered.
+    public var coolify: [String: CoolifyTreeReport] = [:]
+    public var discoveringCoolify: Set<String> = []
+    /// Why the last look for Coolify resources failed, per server. Kept so the
+    /// Coolify view can say so itself rather than only in the activity log.
+    public var coolifyFailures: [String: String] = [:]
+    /// Job history per server, and the log of whichever job is open.
+    public var jobs: [String: [JobReport]] = [:]
+    public var jobLogs: [String: [JobLogLine]] = [:]
+    /// Jobs that have finished during this session, and whether they worked.
+    /// Onboarding watches this to know the first backup is done.
+    public var finishedJobs: [String: Bool] = [:]
 
     /// Replaced rather than appended by the transport, so the view can be
     /// driven in tests without any XPC at all.
@@ -81,7 +96,7 @@ public final class AppModel {
             connection = .connected
         case let .failed(message):
             lastError = message
-        case .accepted, .done, .restorePreview, .hostKey, .probe, .serverAdded:
+        default:
             break
         }
     }
@@ -94,7 +109,7 @@ public final class AppModel {
         case let .failed(message):
             lastError = message
             append(.init(level: .error, message: message, jobID: nil))
-        case .done, .status, .restorePreview, .hostKey, .probe, .serverAdded, .none:
+        default:
             break
         }
         await refresh()
@@ -233,6 +248,7 @@ public final class AppModel {
             }
         case let .jobFinished(id, serverID, succeeded, message):
             status?.runningJobs.removeAll { $0.id == id }
+            finishedJobs[id] = succeeded
             append(.init(
                 level: succeeded ? .info : .error,
                 message: succeeded
@@ -255,6 +271,88 @@ public final class AppModel {
                 jobID: nil
             ))
         }
+    }
+
+    // MARK: Coolify
+
+    public func discoverCoolify(serverID: String) async {
+        guard let send else { return }
+        discoveringCoolify.insert(serverID)
+        defer { discoveringCoolify.remove(serverID) }
+        switch await send(.discoverCoolify(serverID: serverID)) {
+        case let .coolifyTree(report):
+            coolify[serverID] = report
+            coolifyFailures[serverID] = nil
+        case let .failed(message):
+            lastError = message
+            coolifyFailures[serverID] = message
+            append(.init(level: .error, message: message, jobID: nil))
+        default:
+            coolifyFailures[serverID] = "The agent did not answer."
+        }
+    }
+
+    public func backUpResource(serverID: String, resourceUUID: String) async {
+        guard let send else { return }
+        switch await send(.backUpResource(serverID: serverID, resourceUUID: resourceUUID)) {
+        case let .accepted(jobID):
+            append(.init(level: .info, message: "Backing up \(resourceUUID).", jobID: jobID))
+        case let .failed(message):
+            lastError = message
+            append(.init(level: .error, message: message, jobID: nil))
+        default:
+            break
+        }
+        await refresh()
+    }
+
+    // MARK: Settings
+
+    public func serverSettings(serverID: String) async -> ServerSettingsReport? {
+        guard let send else { return nil }
+        switch await send(.serverSettings(serverID: serverID)) {
+        case let .settings(report):
+            return report
+        case let .failed(message):
+            lastError = message
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    // MARK: History
+
+    public func loadJobs(serverID: String, limit: Int = 100) async {
+        guard let send else { return }
+        switch await send(.jobHistory(serverID: serverID, limit: limit)) {
+        case let .jobs(reports):
+            jobs[serverID] = reports
+        case let .failed(message):
+            lastError = message
+        default:
+            break
+        }
+    }
+
+    public func loadLog(jobID: String) async {
+        guard let send else { return }
+        switch await send(.jobLog(jobID: jobID)) {
+        case let .jobLog(lines):
+            jobLogs[jobID] = lines
+        case let .failed(message):
+            lastError = message
+        default:
+            break
+        }
+    }
+
+    /// Lets the app record something the window should show — a repository it
+    /// could not read, say. The activity list is the one place in the window
+    /// where a message like that can be read in full and copied.
+    public func note(_ message: String, level: ActivityEntry.Level = .info) {
+        if level == .error { lastError = message }
+        append(.init(level: level, message: message, jobID: nil))
     }
 
     /// Bounded, so a long-running app cannot grow without limit.

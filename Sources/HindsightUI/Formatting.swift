@@ -51,6 +51,18 @@ public enum Format {
         return "\(Int(seconds / 3600))h \(Int(seconds.truncatingRemainder(dividingBy: 3600) / 60))m"
     }
 
+    /// A `TimeInterval` overload, for the two dates a job record carries.
+    public static func duration(_ seconds: TimeInterval) -> String {
+        duration(.seconds(seconds))
+    }
+
+    /// Wall-clock time of day, which is what a log line needs.
+    public static func timestamp(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter.string(from: date)
+    }
+
     public static func percent(_ value: Double?) -> String {
         guard let value else { return "—" }
         return "\(Int((value * 100).rounded()))%"

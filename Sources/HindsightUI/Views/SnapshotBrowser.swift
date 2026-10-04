@@ -32,12 +32,28 @@ public struct SnapshotBrowserView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
+            header
+            Divider()
             if isLoading {
                 ProgressView("Reading the snapshot…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if visibleRoots.isEmpty {
+                VStack(spacing: 6) {
+                    Text(search.isEmpty ? "Nothing to show" : "Nothing matches")
+                        .font(.headline)
+                    Text(
+                        search.isEmpty
+                            ? "This snapshot's files could not be listed. The repository may not be on this Mac."
+                            : "No file or folder here matches \"\(search)\"."
+                    )
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(selection: $selection) {
-                    OutlineGroup(roots, children: \.children) { node in
+                    OutlineGroup(visibleRoots, children: \.children) { node in
                         SnapshotNodeRow(node: node)
                             .tag(node)
                             .contextMenu {
@@ -53,28 +69,44 @@ public struct SnapshotBrowserView: View {
                 .listStyle(.inset)
             }
         }
-        .searchable(text: $search, prompt: "Search this snapshot")
-        .navigationTitle(title)
-        .toolbar {
-            ToolbarItem {
-                Button("Restore…", systemImage: "arrow.counterclockwise") {
-                    if let selection { onRestore(selection) }
-                }
-                .disabled(selection == nil)
-                .keyboardShortcut("r", modifiers: [.command])
-            }
-            ToolbarItem {
-                Button("Quick Look", systemImage: "eye") {
-                    if let selection { onPreview(selection) }
-                }
-                .disabled(selection?.isPreviewable != true)
-                .keyboardShortcut(" ", modifiers: [])
-            }
-        }
         .task {
             roots = await loadChildren("/")
             isLoading = false
         }
+    }
+
+    /// Its own controls rather than `searchable` and a `toolbar`: this view is
+    /// embedded in a pane, not pushed onto a navigation stack, and both of
+    /// those modifiers belong to whatever owns the window's chrome.
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.headline)
+            Spacer(minLength: 8)
+            TextField("Search this snapshot", text: $search)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 220)
+            Button("Restore…", systemImage: "arrow.counterclockwise") {
+                if let selection { onRestore(selection) }
+            }
+            .disabled(selection == nil)
+            Button("Quick Look", systemImage: "eye") {
+                if let selection { onPreview(selection) }
+            }
+            .labelStyle(.iconOnly)
+            .disabled(selection?.isPreviewable != true)
+            .help("Look at this file without restoring it")
+        }
+        .padding(8)
+    }
+
+    /// Filtering is by name within what has been loaded: the tree is read a
+    /// directory at a time, so a search cannot promise to reach files nobody
+    /// has opened yet, and pretending otherwise would be worse than this.
+    private var visibleRoots: [SnapshotTreeNode] {
+        let term = search.trimmingCharacters(in: .whitespaces)
+        guard !term.isEmpty else { return roots }
+        return SnapshotTreeBuilder.search(roots, for: term)
     }
 
     private var title: String {

@@ -8,10 +8,9 @@ public struct ServerDetailView: View {
     let job: RunningJob?
     let snapshots: [Snapshot]
     let repositorySizeBytes: Int64?
-    let onBackUpNow: () -> Void
-    let onRestore: () -> Void
-    let onCheckIntegrity: () -> Void
-    let onExportRecoveryKit: () -> Void
+    /// Picking a point in the history opens it, which is the thing a person
+    /// wants next after noticing it.
+    let onOpenSnapshot: (Snapshot) -> Void
 
     @State private var selectedSnapshot: Snapshot?
 
@@ -20,19 +19,13 @@ public struct ServerDetailView: View {
         job: RunningJob?,
         snapshots: [Snapshot],
         repositorySizeBytes: Int64?,
-        onBackUpNow: @escaping () -> Void,
-        onRestore: @escaping () -> Void = {},
-        onCheckIntegrity: @escaping () -> Void = {},
-        onExportRecoveryKit: @escaping () -> Void = {}
+        onOpenSnapshot: @escaping (Snapshot) -> Void = { _ in }
     ) {
         self.server = server
         self.job = job
         self.snapshots = snapshots
         self.repositorySizeBytes = repositorySizeBytes
-        self.onBackUpNow = onBackUpNow
-        self.onRestore = onRestore
-        self.onCheckIntegrity = onCheckIntegrity
-        self.onExportRecoveryKit = onExportRecoveryKit
+        self.onOpenSnapshot = onOpenSnapshot
     }
 
     public var body: some View {
@@ -46,26 +39,9 @@ public struct ServerDetailView: View {
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .navigationTitle(server.name)
-        .toolbar {
-            ToolbarItem {
-                Button("Back up now", systemImage: "arrow.clockwise", action: onBackUpNow)
-                    .keyboardShortcut("b", modifiers: [.command])
-                    .disabled(job != nil)
-            }
-            ToolbarItem {
-                Button("Restore…", systemImage: "arrow.counterclockwise", action: onRestore)
-                    .keyboardShortcut("r", modifiers: [.command])
-                    .disabled(snapshots.isEmpty)
-            }
-            ToolbarItem {
-                Menu {
-                    Button("Check integrity now", systemImage: "checkmark.seal", action: onCheckIntegrity)
-                    Button("Save recovery kit…", systemImage: "square.and.arrow.down", action: onExportRecoveryKit)
-                } label: {
-                    Label("More", systemImage: "ellipsis.circle")
-                }
-            }
+        .onChange(of: selectedSnapshot) { _, snapshot in
+            guard let snapshot else { return }
+            onOpenSnapshot(snapshot)
         }
     }
 

@@ -12,18 +12,39 @@ import HindsightUI
 /// the agent and shares its keychain access group.
 @MainActor
 enum RecoveryKitExport {
-    static func run(catalog: CatalogReader?, secrets: any SecretStore) {
+    /// Returns whether a kit was actually written, so a caller can tell saving
+    /// it from cancelling the dialog — the difference between a server whose
+    /// backups can be read elsewhere and one whose cannot.
+    @discardableResult
+    static func run(
+        catalog: CatalogReader?,
+        secrets: any SecretStore,
+        onlyServer: String? = nil
+    ) async -> Bool {
         guard let catalog else {
             present(message: "No catalog is open yet, so there is nothing to export.")
-            return
+            return false
         }
 
-        let kit: RecoveryKit
+        var kit: RecoveryKit
         do {
-            kit = try build(catalog: catalog, secrets: secrets)
+            // Off the main actor: reading each repository password goes to
+            // securityd, which can block — and a blocked main actor is a window
+            // that stops drawing.
+            kit = try await Task.detached(priority: .userInitiated) {
+                try build(catalog: catalog, secrets: secrets)
+            }.value
         } catch {
             present(message: "Could not assemble the recovery kit: \(error)")
-            return
+            return false
+        }
+
+        if let onlyServer {
+            kit.entries = kit.entries.filter { $0.serverID == onlyServer }
+            guard !kit.entries.isEmpty else {
+                present(message: "That server has no repository yet, so there is nothing to save.")
+                return false
+            }
         }
 
         // A kit missing a password would look like the job was done while
@@ -37,7 +58,7 @@ enum RecoveryKitExport {
                 backups unreadable.
                 """
             )
-            return
+            return false
         }
 
         let panel = NSSavePanel()
@@ -49,7 +70,7 @@ enum RecoveryKitExport {
         """
         panel.canCreateDirectories = true
 
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard panel.runModal() == .OK, let url = panel.url else { return false }
 
         do {
             try Data(kit.markdown().utf8).write(to: url, options: .atomic)
@@ -64,12 +85,17 @@ enum RecoveryKitExport {
                     ofItemAtPath: file.path
                 )
             }
+            return true
         } catch {
             present(message: "Could not write the recovery kit: \(error)")
+            return false
         }
     }
 
-    static func build(catalog: CatalogReader, secrets: any SecretStore) throws -> RecoveryKit {
+    nonisolated static func build(
+        catalog: CatalogReader,
+        secrets: any SecretStore
+    ) throws -> RecoveryKit {
         let servers = try catalog.servers()
         let entries = servers.map { server -> RecoveryKit.Entry in
             let repository = try? catalog.repository(forServer: server.id)

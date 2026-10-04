@@ -35,6 +35,12 @@ public struct ServerSettingsView: View {
         _excludePatterns = excludePatterns
     }
 
+    private func reveal(_ path: String) {
+        #if canImport(AppKit)
+        NSWorkspace.shared.selectFile(path, inFileViewerRootedAtPath: "")
+        #endif
+    }
+
     public var body: some View {
         Form {
             Section("Schedule") {
@@ -92,11 +98,13 @@ public struct ServerSettingsView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer()
-                    Button("Choose…") {}
+                    Button("Reveal in Finder") { reveal(repositoryPath) }
+                        .disabled(repositoryPath.isEmpty)
                 }
                 Text("""
-                Moving this later moves the existing backups with it rather \
-                than leaving them behind.
+                Chosen when the server was added. Moving a repository means \
+                moving its files and telling Hindsight where they went, which \
+                it cannot do yet — so this is shown rather than offered.
                 """)
                 .font(.caption)
                 .foregroundStyle(.secondary)
