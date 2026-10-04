@@ -9,6 +9,10 @@ let package = Package(
         .library(name: "HindsightProcess", targets: ["HindsightProcess"]),
         .library(name: "HindsightRestic", targets: ["HindsightRestic"]),
         .library(name: "HindsightSSH", targets: ["HindsightSSH"]),
+        .library(name: "HindsightCatalog", targets: ["HindsightCatalog"]),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/groue/GRDB.swift.git", exact: "7.11.1"),
     ],
     targets: [
         .target(
@@ -30,6 +34,14 @@ let package = Package(
             dependencies: ["HindsightCore", "HindsightProcess", "HindsightRestic"],
             swiftSettings: .common
         ),
+        .target(
+            name: "HindsightCatalog",
+            dependencies: [
+                "HindsightCore",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
+            swiftSettings: .common
+        ),
         .testTarget(
             name: "HindsightCoreTests",
             dependencies: ["HindsightCore"],
@@ -48,6 +60,11 @@ let package = Package(
         .testTarget(
             name: "HindsightSSHTests",
             dependencies: ["HindsightSSH"],
+            swiftSettings: .common
+        ),
+        .testTarget(
+            name: "HindsightCatalogTests",
+            dependencies: ["HindsightCatalog"],
             swiftSettings: .common
         ),
     ],

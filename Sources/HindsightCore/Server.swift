@@ -22,7 +22,7 @@ public enum SSHAuthentication: Hashable, Sendable, Codable {
     case existingKey(path: String)
 }
 
-public enum Privilege: Hashable, Sendable, Codable {
+public enum Privilege: String, Hashable, Sendable, Codable, CaseIterable {
     case root
     case sudo
 }

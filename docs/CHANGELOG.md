@@ -36,3 +36,16 @@
 - A local Docker environment (`scripts/testenv.sh`) with sshd, Postgres, and
   MySQL, and integration tests that only ever talk to 127.0.0.1.
 - Process layer: timeouts, and event-driven reads in place of blocking ones.
+
+## M3 — Catalog
+
+- GRDB schema and migrations for servers, repositories, schedules, retention
+  policies, path rules, snapshots and their tags, jobs and events, integrity
+  checks, Coolify resources and captures, and restores.
+- Single writer, many readers: WAL, foreign keys on, and a busy timeout so a
+  routine overlap never fails a backup.
+- Refuses to open a catalog written by a newer build rather than guessing at
+  an unknown schema.
+- Resource history by tag, pruned-snapshot reconciliation, bounded job event
+  history, and retention that falls back to the documented defaults so a
+  missing row can never read as "keep nothing".
