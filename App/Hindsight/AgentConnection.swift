@@ -22,18 +22,36 @@ final class AgentConnection {
     }
 
     func send(_ request: AgentRequest) async -> AgentResponse? {
-        guard let service = proxy() else { return nil }
         guard let payload = try? AgentCoding.encode(request) else { return nil }
+        let connection = ensureConnection()
 
         return await withCheckedContinuation { continuation in
             let box = ReplyBox(continuation: continuation)
-            service.perform(payload) { data in
+
+            // Both closures are explicitly `@Sendable`, and capture only the
+            // box. Without that they inherit this type's `@MainActor`
+            // isolation, and XPC calls them on its own queue — which traps on
+            // the isolation check rather than reporting the failure.
+            //
+            // The error handler itself is what keeps a request to an absent
+            // agent from leaving the caller suspended forever: XPC never calls
+            // the reply block at all in that case.
+            let service = connection?.remoteObjectProxyWithErrorHandler { @Sendable _ in
+                box.finish(nil)
+            } as? HindsightAgentService
+
+            guard let service else {
+                box.finish(nil)
+                return
+            }
+
+            service.perform(payload) { @Sendable data in
                 box.finish(data.flatMap { try? AgentCoding.decode(AgentResponse.self, from: $0) })
             }
         }
     }
 
-    private func proxy() -> HindsightAgentService? {
+    private func ensureConnection() -> NSXPCConnection? {
         if connection == nil {
             let created = NSXPCConnection(machServiceName: hindsightAgentMachServiceName)
             created.remoteObjectInterface = NSXPCInterface(with: HindsightAgentService.self)
@@ -57,7 +75,7 @@ final class AgentConnection {
             created.resume()
             connection = created
         }
-        return connection?.remoteObjectProxy as? HindsightAgentService
+        return connection
     }
 }
 

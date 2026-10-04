@@ -22,7 +22,10 @@ public struct ServerListView: View {
     }
 
     public var body: some View {
-        List(selection: $selection) {
+        // The empty state replaces the list rather than sitting inside it:
+        // `ContentUnavailableView` as a row crashes SwiftUI's layout, which is
+        // the first thing the window does before any data has arrived.
+        Group {
             if servers.isEmpty {
                 ContentUnavailableView(
                     "No servers yet",
@@ -30,10 +33,12 @@ public struct ServerListView: View {
                     description: Text("Add a server to start backing it up.")
                 )
             } else {
-                Section("Servers") {
-                    ForEach(servers, id: \.id) { server in
-                        ServerRow(server: server, job: runningJob(server.id))
-                            .tag(server.id)
+                List(selection: $selection) {
+                    Section("Servers") {
+                        ForEach(servers, id: \.id) { server in
+                            ServerRow(server: server, job: runningJob(server.id))
+                                .tag(server.id)
+                        }
                     }
                 }
             }

@@ -168,3 +168,67 @@ public struct ActivityEntry: Sendable, Hashable, Identifiable {
         return "[\(formatter.string(from: at))] \(level.rawValue.uppercased()): \(message)"
     }
 }
+
+extension AppModel {
+    /// Shows what the catalog knows when the agent cannot be reached.
+    ///
+    /// The agent is the source of truth for *live* state — what is running,
+    /// what is due next — but history is in the catalog, and an app that shows
+    /// an empty window because a connection failed is less useful and more
+    /// alarming than one that shows yesterday's state and says so.
+    public func populateFromCatalog(_ servers: [CatalogServerSummary]) {
+        let now = Date()
+        status = AgentStatus(
+            version: status?.version ?? "offline",
+            servers: servers.map { summary in
+                ServerStatus(
+                    id: summary.id,
+                    name: summary.name,
+                    health: Self.health(
+                        lastBackupAt: summary.lastBackupAt,
+                        lastCheckPassed: summary.lastCheckPassed,
+                        now: now
+                    ),
+                    lastBackupAt: summary.lastBackupAt,
+                    nextBackupAt: nil,
+                    scheduleExplanation: summary.scheduleExplanation,
+                    lastCheckPassed: summary.lastCheckPassed
+                )
+            },
+            runningJobs: []
+        )
+    }
+
+    static func health(
+        lastBackupAt: Date?,
+        lastCheckPassed: Bool?,
+        now: Date
+    ) -> ServerStatus.Health {
+        guard let lastBackupAt else { return .unknown }
+        if lastCheckPassed == false { return .failing }
+        return now.timeIntervalSince(lastBackupAt) > 48 * 3600 ? .stale : .healthy
+    }
+}
+
+/// What the app can learn about a server without the agent.
+public struct CatalogServerSummary: Sendable, Hashable {
+    public var id: String
+    public var name: String
+    public var lastBackupAt: Date?
+    public var lastCheckPassed: Bool?
+    public var scheduleExplanation: String
+
+    public init(
+        id: String,
+        name: String,
+        lastBackupAt: Date?,
+        lastCheckPassed: Bool?,
+        scheduleExplanation: String
+    ) {
+        self.id = id
+        self.name = name
+        self.lastBackupAt = lastBackupAt
+        self.lastCheckPassed = lastCheckPassed
+        self.scheduleExplanation = scheduleExplanation
+    }
+}

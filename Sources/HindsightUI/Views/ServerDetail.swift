@@ -75,22 +75,17 @@ public struct ServerDetailView: View {
     }
 
     private var statistics: some View {
+        // Rows rather than a `Grid`: a Grid inside a GroupBox inside a
+        // ScrollView crashes SwiftUI's layout on macOS 14, and the alignment a
+        // Grid buys here is not worth a window that will not open.
         GroupBox("Repository") {
-            Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 8) {
-                GridRow {
-                    Text("Snapshots").foregroundStyle(.secondary)
-                    Text("\(snapshots.count)").monospacedDigit()
-                }
-                GridRow {
-                    Text("Stored").foregroundStyle(.secondary)
-                    Text(Format.bytes(repositorySizeBytes)).monospacedDigit()
-                }
-                GridRow {
-                    Text("Savings").foregroundStyle(.secondary)
-                    Text(savings).monospacedDigit()
-                }
+            VStack(alignment: .leading, spacing: 8) {
+                StatisticRow(label: "Snapshots", value: "\(snapshots.count)")
+                StatisticRow(label: "Stored", value: Format.bytes(repositorySizeBytes))
+                StatisticRow(label: "Savings", value: savings)
             }
             .padding(6)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -100,6 +95,23 @@ public struct ServerDetailView: View {
         let processed = snapshots.compactMap(\.sizeBytes).reduce(0, +)
         guard let stored = repositorySizeBytes else { return "—" }
         return Format.savings(stored: stored, processed: processed)
+    }
+}
+
+struct StatisticRow: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Text(label)
+                .foregroundStyle(.secondary)
+                .frame(width: 96, alignment: .leading)
+            Text(value).monospacedDigit()
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label): \(value)")
     }
 }
 

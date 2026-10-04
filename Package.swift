@@ -18,6 +18,7 @@ let package = Package(
         .library(name: "HindsightRestore", targets: ["HindsightRestore"]),
         .library(name: "HindsightUI", targets: ["HindsightUI"]),
         .executable(name: "hindsight-agent", targets: ["hindsight-agent"]),
+        .executable(name: "hindsight-demo-catalog", targets: ["hindsight-demo-catalog"]),
         .library(name: "HindsightAgentKit", targets: ["HindsightAgentKit"]),
     ],
     dependencies: [
@@ -92,6 +93,13 @@ let package = Package(
         .target(
             name: "HindsightProtocol",
             dependencies: ["HindsightCore"],
+            swiftSettings: .common
+        ),
+        .executableTarget(
+            name: "hindsight-demo-catalog",
+            dependencies: ["HindsightCatalog", "HindsightCore"],
+            path: "scripts",
+            sources: ["demo-catalog.swift"],
             swiftSettings: .common
         ),
         .executableTarget(

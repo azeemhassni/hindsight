@@ -25,6 +25,8 @@ struct HindsightApp: App {
             )
             .task { await start() }
         }
+        .defaultSize(width: 1040, height: 700)
+        .defaultPosition(.center)
         .commands {
             CommandGroup(after: .newItem) {
                 Button("Back Up Now") {
@@ -68,11 +70,41 @@ struct HindsightApp: App {
         connection.onEvent = { [model] event in model.apply(event) }
         catalog = try? CatalogReader.open(at: catalogURL)
         await model.refresh()
+
+        // The agent owns live state, but history lives in the catalog. If the
+        // agent cannot be reached, show what is known rather than an empty
+        // window — the banner already explains the connection.
+        if case .unavailable = model.connection {
+            model.populateFromCatalog(catalogSummaries())
+        }
     }
 
+    /// Overridable so the interface can be run against a catalog other than
+    /// the installed one, without touching it.
     private var catalogURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        if let override = ProcessInfo.processInfo.environment["HINDSIGHT_CATALOG_PATH"] {
+            return URL(fileURLWithPath: override)
+        }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Hindsight/catalog.sqlite")
+    }
+
+    private func catalogSummaries() -> [CatalogServerSummary] {
+        guard let catalog, let servers = try? catalog.servers() else { return [] }
+        return servers.map { server in
+            let lastBackup = (try? catalog.jobs(forServer: server.id, limit: 50))?
+                .first { $0.state == .succeeded && $0.kind == .backup }?
+                .finishedAt
+            let check = (try? catalog.repository(forServer: server.id))
+                .flatMap { repository in try? catalog.latestCheck(forRepository: repository.id) }
+            return CatalogServerSummary(
+                id: server.id.value,
+                name: server.name,
+                lastBackupAt: lastBackup,
+                lastCheckPassed: check.map { $0.outcome == .passed },
+                scheduleExplanation: "Schedule is known to the agent."
+            )
+        }
     }
 
     /// Read straight from the catalog rather than proxied over XPC: the agent

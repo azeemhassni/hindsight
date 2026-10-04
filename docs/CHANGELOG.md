@@ -189,3 +189,26 @@
   compromised machine cannot touch the copy that outlives it.
 - Verified locally: every snapshot arrives, the copy passes its own integrity
   check, and copying again adds nothing.
+
+## Running the app for the first time
+
+Launching the real app found four bugs that no test had caught, because none of
+them appear until SwiftUI actually lays out a window on macOS 14:
+
+- `ContentUnavailableView` as a row inside a `List` crashes the layout. It is
+  the empty state the sidebar shows before any data arrives, so the app crashed
+  every launch.
+- `safeAreaInset` attached to a `NavigationSplitView` crashes it too; the
+  connection banner now sits at the top of the detail column.
+- Wrapping a `NavigationSplitView` in a `VStack` collapses it to the sidebar's
+  width — a window that opens but shows nothing.
+- The XPC error handler was formed in a `@MainActor` context, so Swift 6's
+  isolation check trapped when XPC invoked it on its own queue. Before the
+  handler existed at all, a request to an absent agent leaked its continuation
+  and hung the caller forever instead.
+
+The app also now falls back to the catalog when the agent cannot be reached, so
+a window shows the history it knows rather than nothing, and
+`HINDSIGHT_CATALOG_PATH` lets the interface be run against a catalog other than
+the installed one. `hindsight-demo-catalog` writes a catalog with plausible
+history for exactly that.
