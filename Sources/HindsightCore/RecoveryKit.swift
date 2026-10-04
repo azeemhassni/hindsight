@@ -1,5 +1,4 @@
 import Foundation
-import HindsightCore
 
 /// The document that makes backups recoverable without Hindsight.
 ///

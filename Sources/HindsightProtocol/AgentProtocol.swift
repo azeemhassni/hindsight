@@ -47,6 +47,69 @@ public enum AgentRequest: Codable, Sendable, Hashable {
     case jobLog(jobID: String)
     /// The settings as they stand, for the settings view to start from.
     case serverSettings(serverID: String)
+    /// Reading a repository: the agent does it because it holds the password.
+    case listSnapshotDirectory(serverID: String, snapshotID: String, path: String)
+    case extractFile(serverID: String, snapshotID: String, path: String)
+    /// Assembled by the agent, saved by the app: the passwords are the agent's
+    /// to read, and where the file goes is a question for a person.
+    case recoveryKit(serverID: String?)
+    /// Asks the agent to exit so launchd starts the new one. Sent after an
+    /// update, when the running agent is not the one in the app bundle.
+    case restartAgent
+}
+
+/// One entry of a snapshot's directory listing.
+public struct SnapshotNodeReport: Codable, Sendable, Hashable {
+    public var path: String
+    public var name: String
+    public var isDirectory: Bool
+    public var sizeBytes: Int64?
+    public var modifiedAt: Date?
+    public var permissions: String?
+
+    public init(
+        path: String,
+        name: String,
+        isDirectory: Bool,
+        sizeBytes: Int64?,
+        modifiedAt: Date?,
+        permissions: String?
+    ) {
+        self.path = path
+        self.name = name
+        self.isDirectory = isDirectory
+        self.sizeBytes = sizeBytes
+        self.modifiedAt = modifiedAt
+        self.permissions = permissions
+    }
+}
+
+/// A recovery kit, rendered and ready to save.
+///
+/// The passwords are in here, which is the point of the document: it is what
+/// makes the backups readable without this Mac. It crosses XPC only to a peer
+/// already pinned to the same signing team.
+public struct RecoveryKitReport: Codable, Sendable, Hashable {
+    public var markdown: String
+    public var json: String
+    /// Servers whose password could not be read. A kit missing one would look
+    /// like the job was done while leaving those backups unreadable.
+    public var missingPasswordServers: [String]
+    public var serverCount: Int
+
+    public init(
+        markdown: String,
+        json: String,
+        missingPasswordServers: [String],
+        serverCount: Int
+    ) {
+        self.markdown = markdown
+        self.json = json
+        self.missingPasswordServers = missingPasswordServers
+        self.serverCount = serverCount
+    }
+
+    public var isUsable: Bool { missingPasswordServers.isEmpty && serverCount > 0 }
 }
 
 /// A server's current settings. The Coolify token is reported as set or not
@@ -417,6 +480,9 @@ public enum AgentResponse: Codable, Sendable, Hashable {
     case jobs([JobReport])
     case jobLog([JobLogLine])
     case settings(ServerSettingsReport)
+    case snapshotNodes([SnapshotNodeReport])
+    case extractedFile(path: String)
+    case kit(RecoveryKitReport)
     case done
     case failed(message: String)
 }
@@ -425,11 +491,20 @@ public struct AgentStatus: Codable, Sendable, Hashable {
     public var version: String
     public var servers: [ServerStatus]
     public var runningJobs: [RunningJob]
+    /// Which build of the agent is actually running, so the app can notice
+    /// that an update left the old one in place.
+    public var binaryIdentity: String?
 
-    public init(version: String, servers: [ServerStatus], runningJobs: [RunningJob]) {
+    public init(
+        version: String,
+        servers: [ServerStatus],
+        runningJobs: [RunningJob],
+        binaryIdentity: String? = nil
+    ) {
         self.version = version
         self.servers = servers
         self.runningJobs = runningJobs
+        self.binaryIdentity = binaryIdentity
     }
 
     /// What the menu bar shows at a glance.

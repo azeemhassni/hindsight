@@ -27,6 +27,10 @@ public final class AppModel {
     /// than the view so the View menu can move between them.
     public var tab: ServerTab = .overview
     public var lastError: String?
+    /// Set when macOS is waiting for the person to allow the background agent
+    /// in Login Items. Backups do not run until they do, so the window says so
+    /// rather than looking merely disconnected.
+    public var agentNeedsApproval = false
     /// The most recent restore outcome, so an open sheet can reflect it.
     public var lastRestoreEvent: AgentEvent?
     /// Coolify resources per server, as last discovered.
@@ -304,6 +308,69 @@ public final class AppModel {
             break
         }
         await refresh()
+    }
+
+    /// Asks the agent to exit so launchd starts the version in this bundle.
+    public func restartAgent() async {
+        guard let send else { return }
+        _ = await send(.restartAgent)
+        note("Restarted the background agent to match this version of the app.")
+    }
+
+    // MARK: Reading a repository
+
+    /// Lists one directory of a snapshot through the agent.
+    ///
+    /// Not read directly any more: reading a repository needs its password,
+    /// and the agent is the only process that holds one.
+    public func snapshotDirectory(
+        serverID: String,
+        snapshotID: String,
+        path: String
+    ) async -> [SnapshotNodeReport] {
+        guard let send else { return [] }
+        switch await send(
+            .listSnapshotDirectory(serverID: serverID, snapshotID: snapshotID, path: path)
+        ) {
+        case let .snapshotNodes(nodes):
+            return nodes
+        case let .failed(message):
+            note("Could not read this snapshot: \(message)", level: .error)
+            return []
+        default:
+            return []
+        }
+    }
+
+    /// Extracts one file for Quick Look, returning where the agent put it.
+    public func extractFile(
+        serverID: String,
+        snapshotID: String,
+        path: String
+    ) async -> String? {
+        guard let send else { return nil }
+        switch await send(.extractFile(serverID: serverID, snapshotID: snapshotID, path: path)) {
+        case let .extractedFile(path):
+            return path
+        case let .failed(message):
+            note("Could not read \(path) out of this snapshot: \(message)", level: .error)
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    public func recoveryKit(serverID: String?) async -> RecoveryKitReport? {
+        guard let send else { return nil }
+        switch await send(.recoveryKit(serverID: serverID)) {
+        case let .kit(report):
+            return report
+        case let .failed(message):
+            note(message, level: .error)
+            return nil
+        default:
+            return nil
+        }
     }
 
     // MARK: Settings

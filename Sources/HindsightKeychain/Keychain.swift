@@ -9,14 +9,17 @@ import Security
 /// would mean backups silently stop whenever the Mac is left locked.
 public struct Keychain: SecretStore {
     public let service: String
-    /// Set so the app and the agent, signed by the same team, share items.
-    /// Requires the keychain-access-groups entitlement; nil in unsigned builds.
-    public let accessGroup: String?
+    /// Where the items live. Derived from the running binary's own signature by
+    /// default, so a signed build shares them with the agent through the access
+    /// group and an unsigned one still works, with prompts.
+    public let domain: KeychainDomain
 
-    public init(service: String = "app.hindsight", accessGroup: String? = nil) {
+    public init(service: String = "app.hindsight", domain: KeychainDomain = .automatic) {
         self.service = service
-        self.accessGroup = accessGroup
+        self.domain = domain
     }
+
+    public var accessGroup: String? { domain.accessGroup }
 
     private func baseQuery(_ key: SecretKey) -> [String: Any] {
         var query: [String: Any] = [
@@ -24,8 +27,11 @@ public struct Keychain: SecretStore {
             kSecAttrService as String: service,
             kSecAttrAccount as String: key.account,
         ]
-        if let accessGroup {
-            query[kSecAttrAccessGroup as String] = accessGroup
+        if let group = domain.accessGroup {
+            query[kSecAttrAccessGroup as String] = group
+        }
+        if domain.usesDataProtection {
+            query[kSecUseDataProtectionKeychain as String] = true
         }
         return query
     }
@@ -41,7 +47,11 @@ public struct Keychain: SecretStore {
             throw SecretStoreError.notFound(account: key.account)
         }
         guard status == errSecSuccess, let data = item as? Data else {
-            throw SecretStoreError.keychainFailure(account: key.account, status: status)
+            throw SecretStoreError.keychainFailure(
+                account: key.account,
+                status: status,
+                keychain: domain.name
+            )
         }
         guard let value = String(data: data, encoding: .utf8) else {
             throw SecretStoreError.notUTF8(account: key.account)
@@ -64,7 +74,11 @@ public struct Keychain: SecretStore {
                 [kSecValueData as String: data] as CFDictionary
             )
             guard status == errSecSuccess else {
-                throw SecretStoreError.keychainFailure(account: key.account, status: status)
+                throw SecretStoreError.keychainFailure(
+                account: key.account,
+                status: status,
+                keychain: domain.name
+            )
             }
             return
         }
@@ -76,14 +90,22 @@ public struct Keychain: SecretStore {
 
         let status = SecItemAdd(query as CFDictionary, nil)
         guard status == errSecSuccess else {
-            throw SecretStoreError.keychainFailure(account: key.account, status: status)
+            throw SecretStoreError.keychainFailure(
+                account: key.account,
+                status: status,
+                keychain: domain.name
+            )
         }
     }
 
     public func delete(_ key: SecretKey) throws {
         let status = SecItemDelete(baseQuery(key) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw SecretStoreError.keychainFailure(account: key.account, status: status)
+            throw SecretStoreError.keychainFailure(
+                account: key.account,
+                status: status,
+                keychain: domain.name
+            )
         }
     }
 }

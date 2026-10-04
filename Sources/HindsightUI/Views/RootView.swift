@@ -34,6 +34,8 @@ public struct RootView: View {
     let chooseRepositoryDirectory: @MainActor @Sendable () -> String?
     let recoveryKits: any RecoveryKitRegistry
     let sudoersResticPath: String
+    /// Opens Login Items, where the background agent is allowed or refused.
+    let onOpenLoginItems: @MainActor @Sendable () -> Void
 
     @State private var restoreFlow: RestoreFlow?
     @State private var onboarding: OnboardingController?
@@ -63,7 +65,8 @@ public struct RootView: View {
         exportRecoveryKit: @escaping @MainActor @Sendable (String?) async -> Bool = { _ in false },
         chooseRepositoryDirectory: @escaping @MainActor @Sendable () -> String? = { nil },
         recoveryKits: any RecoveryKitRegistry = InMemoryRecoveryKitRegistry(),
-        sudoersResticPath: String = "/usr/local/bin/restic"
+        sudoersResticPath: String = "/usr/local/bin/restic",
+        onOpenLoginItems: @escaping @MainActor @Sendable () -> Void = {}
     ) {
         self.model = model
         self.snapshots = snapshots
@@ -74,6 +77,7 @@ public struct RootView: View {
         self.chooseRepositoryDirectory = chooseRepositoryDirectory
         self.recoveryKits = recoveryKits
         self.sudoersResticPath = sudoersResticPath
+        self.onOpenLoginItems = onOpenLoginItems
     }
 
     public var body: some View {
@@ -90,7 +94,11 @@ public struct RootView: View {
             .navigationSplitViewColumnWidth(min: 220, ideal: 260)
         } detail: {
             VStack(spacing: 0) {
-                if case let .unavailable(reason) = model.connection {
+                if model.agentNeedsApproval {
+                    // Different from a connection problem, and worth saying so:
+                    // nothing is backing up until this is allowed.
+                    ApprovalBanner(onOpenSettings: onOpenLoginItems)
+                } else if case let .unavailable(reason) = model.connection {
                     // Phrased so it cannot be read as "backups have stopped",
                     // because they have not: the agent runs them, not the
                     // window.
@@ -382,6 +390,31 @@ struct RecoveryKitBanner: View {
             Spacer(minLength: 8)
             Button("Save recovery kit…", action: onExport)
                 .accessibilityLabel("Save the recovery kit for \(serverName)")
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.18))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Shown while macOS is waiting for the person to allow the agent.
+struct ApprovalBanner: View {
+    let onOpenSettings: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
+            Text("""
+            Hindsight's background agent is waiting to be allowed in Login \
+            Items. Nothing is backed up until it is.
+            """)
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button("Open Login Items", action: onOpenSettings)
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)

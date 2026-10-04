@@ -31,9 +31,38 @@ public enum SecretKey: Hashable, Sendable {
 }
 
 public enum SecretStoreError: Error, Hashable, Sendable, CustomStringConvertible {
+    /// `errSecAuthFailed`: the item exists, and this binary is not on its
+    /// access list. The usual cause is that it was stored by a differently
+    /// signed build — a development one, say — and the item's list names that
+    /// code, not this.
+    public static let authorizationFailed: Int32 = -25293
+    /// `errSecInteractionNotAllowed`: the same question, asked of a process
+    /// that cannot put a dialog on screen. The agent runs in the background,
+    /// so this is how it sees a permission prompt it can never answer.
+    public static let interactionNotAllowed: Int32 = -25308
     case notFound(account: String)
-    case keychainFailure(account: String, status: Int32)
+    /// `keychain` names which store was asked — the login keychain or the
+    /// data-protection one — because the same status means different things in
+    /// each, and -34018 in particular means "this build has no entitlement for
+    /// the keychain it asked for".
+    case keychainFailure(account: String, status: Int32, keychain: String = "")
     case notUTF8(account: String)
+
+    static func explain(account: String, status: Int32, keychain: String) -> String {
+        let store = keychain.isEmpty ? "Keychain" : keychain
+        switch status {
+        case authorizationFailed, interactionNotAllowed:
+            return """
+            The \(store) has \(account) but will not let this copy of \
+            Hindsight read it (status \(status)). That happens when the item \
+            was stored by a differently signed build. Remove it from Keychain \
+            Access and let Hindsight store it again from the recovery kit, or \
+            allow this application when macOS asks.
+            """
+        default:
+            return "The \(store) refused access to \(account) (status \(status))."
+        }
+    }
 
     public var description: String {
         switch self {
@@ -43,8 +72,8 @@ public enum SecretStoreError: Error, Hashable, Sendable, CustomStringConvertible
             password, the backups it protects cannot be read without it — \
             restore it from the recovery kit.
             """
-        case let .keychainFailure(account, status):
-            "The Keychain refused access to \(account) (status \(status))."
+        case let .keychainFailure(account, status, keychain):
+            Self.explain(account: account, status: status, keychain: keychain)
         case let .notUTF8(account):
             "The Keychain item \(account) is not text."
         }

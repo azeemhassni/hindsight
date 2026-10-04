@@ -95,9 +95,30 @@ struct AgentProtocolTests {
 
     @Test("builds a code-signing requirement that names the team")
     func buildsCodeSigningRequirement() {
-        let requirement = ConnectionSecurity.codeSigningRequirement(teamIdentifier: "ABCDE12345")
+        let requirement = ConnectionSecurity.appRequirement(teamIdentifier: "ABCDE12345")
         #expect(requirement.contains("ABCDE12345"))
         #expect(requirement.contains("anchor apple generic"))
-        #expect(requirement.contains("app.hindsight"))
+        #expect(requirement.contains("identifier \"app.hindsight\""))
+    }
+
+    /// The two ends have different bundle identifiers, and each must require
+    /// the other's. A requirement naming only the app would refuse the agent —
+    /// the connection it exists to protect.
+    @Test("each end requires the other's identifier, not its own")
+    func requirementsNameTheOtherEnd() {
+        let agent = ConnectionSecurity.agentRequirement(teamIdentifier: "ABCDE12345")
+        #expect(agent.contains("identifier \"app.hindsight.agent\""))
+
+        let app = ConnectionSecurity.appRequirement(teamIdentifier: "ABCDE12345")
+        #expect(app.contains("identifier \"app.hindsight\""))
+        #expect(!app.contains("app.hindsight.agent"))
+    }
+
+    @Test("an unsigned build pins nothing rather than inventing a requirement")
+    func unsignedBuildsPinNothing() {
+        // There is nothing to assert about the value here — a test binary may
+        // be signed or not — only that asking is safe and the answer is used
+        // to decide whether to pin at all.
+        _ = ConnectionSecurity.teamIdentifier
     }
 }

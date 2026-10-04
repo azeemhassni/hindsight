@@ -1,8 +1,6 @@
 import Foundation
-import HindsightCore
 import Testing
-@testable import HindsightUI
-
+@testable import HindsightCore
 @Suite("Recovery kit")
 struct RecoveryKitTests {
     private func kit(password: String = "dGVzdC1wYXNzd29yZC1oZXJl") -> RecoveryKit {

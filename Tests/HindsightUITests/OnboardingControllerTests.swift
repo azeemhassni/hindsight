@@ -218,3 +218,81 @@ struct OnboardingControllerTests {
         controller.testModel
     }
 }
+
+@MainActor
+@Suite("A probe that fails")
+struct OnboardingProbeFailureTests {
+    @Test("says what went wrong instead of blaming sudo, and stays retryable")
+    func failedProbeIsRetryable() async {
+        var replies = 0
+        let model = AppModel()
+        model.send = { request in
+            guard case .probeServer = request else { return .done }
+            replies += 1
+            if replies == 1 {
+                return .failed(message: "No host key is recorded for 127.0.0.1 yet.")
+            }
+            return .probe(
+                ServerProbeReport(
+                    prettyName: "Ubuntu 24.04.1 LTS",
+                    architecture: "aarch64",
+                    hasPasswordlessSudo: false,
+                    dockerVersion: nil,
+                    coolifyVersion: nil,
+                    homeDirectory: "/root",
+                    isTestTarget: true
+                )
+            )
+        }
+        let controller = OnboardingController(
+            model: model,
+            chooseRepository: { nil },
+            exportRecoveryKit: { _ in false }
+        )
+        controller.state.host = "127.0.0.1"
+        controller.state.user = "root"
+        controller.state.step = .checkPrivileges
+
+        await controller.probeServer()
+        // Nothing was learned about sudo, so nothing is claimed about it.
+        #expect(controller.state.sudoAvailable == nil)
+        #expect(controller.state.privilegeMode == nil)
+        #expect(controller.error?.contains("host key") == true)
+
+        // And trying again works, which is the part that was broken: the step
+        // used to record "sudo unavailable" and never ask again.
+        await controller.probeServer()
+        #expect(controller.state.privilegeMode == .root)
+        #expect(controller.state.canAdvance)
+    }
+
+    @Test("connecting as root needs no sudo, whatever the probe says about it")
+    func rootNeedsNoSudo() async {
+        let model = AppModel()
+        model.send = { _ in
+            .probe(
+                ServerProbeReport(
+                    prettyName: "Debian 12",
+                    architecture: "x86_64",
+                    hasPasswordlessSudo: false,
+                    dockerVersion: nil,
+                    coolifyVersion: nil,
+                    homeDirectory: "/root",
+                    isTestTarget: false
+                )
+            )
+        }
+        let controller = OnboardingController(
+            model: model,
+            chooseRepository: { nil },
+            exportRecoveryKit: { _ in false }
+        )
+        controller.state.host = "198.51.100.1"
+        controller.state.user = "root"
+        controller.state.step = .checkPrivileges
+
+        await controller.probeServer()
+        #expect(controller.state.privilegeMode == .root)
+        #expect(controller.state.blockingReason == nil)
+    }
+}

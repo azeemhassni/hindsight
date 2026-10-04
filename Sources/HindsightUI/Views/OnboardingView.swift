@@ -118,7 +118,7 @@ public struct OnboardingView: View {
 
         case .checkPrivileges:
             VStack(alignment: .leading, spacing: 12) {
-                if state.privilegeMode == nil, state.sudoAvailable == nil {
+                if state.privilegeMode == nil, state.sudoAvailable == nil, errorText == nil {
                     ProgressView("Checking…").task { await onCheckPrivileges() }
                 }
                 if state.sudoAvailable == false, state.user != "root" {
@@ -137,13 +137,19 @@ public struct OnboardingView: View {
                     """)
                     .font(.callout)
                     .foregroundStyle(.secondary)
-                    Button("Check again") { Task { await onCheckPrivileges() } }
                 } else if let mode = state.privilegeMode {
                     Label(
                         mode == .root ? "Connecting as root." : "Passwordless sudo works.",
                         systemImage: "checkmark.circle"
                     )
                     .foregroundStyle(.green)
+                }
+                // Always offered while the step is unsatisfied, whoever is
+                // connecting: a probe that failed for any reason — the server
+                // was asleep, the key was wrong — otherwise leaves the wizard
+                // with no way forward and no way to try again.
+                if state.privilegeMode == nil {
+                    Button("Check again") { Task { await onCheckPrivileges() } }
                 }
             }
 

@@ -70,8 +70,11 @@ public final class OnboardingController: Identifiable {
         busy = true
         defer { busy = false }
         guard let report = await model.probeServer(draft) else {
+            // Not "sudo is unavailable": nothing was learned about sudo. The
+            // step stays blocked, retryable, and says what actually happened.
             error = model.lastError ?? "Could not reach the server."
-            state.sudoAvailable = false
+            state.sudoAvailable = nil
+            state.privilegeMode = nil
             return
         }
         probe = report
