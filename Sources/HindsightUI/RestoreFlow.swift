@@ -19,6 +19,8 @@ public final class RestoreFlow: Identifiable {
         case preparing
         case reviewing
         case confirming
+        /// Waiting for Touch ID, or the password.
+        case authorizing
         case running
         case finished(succeeded: Bool, safetySnapshotID: String?)
         case failed(String)
@@ -36,11 +38,18 @@ public final class RestoreFlow: Identifiable {
     public var preview: RestorePreviewReport?
 
     private let model: AppModel
+    private let presence: any UserPresenceCheck
 
-    public init(model: AppModel, serverID: String, serverHostname: String) {
+    public init(
+        model: AppModel,
+        serverID: String,
+        serverHostname: String,
+        presence: any UserPresenceCheck = TouchIDPresence()
+    ) {
         self.model = model
         self.serverID = serverID
         self.serverHostname = serverHostname
+        self.presence = presence
     }
 
     public var command: RestoreCommand? {
@@ -86,12 +95,38 @@ public final class RestoreFlow: Identifiable {
     }
 
     public func run() async {
-        guard canConfirm, let command else { return }
+        guard canConfirm, var command else { return }
+
+        // Permission first, then the person, then the restore. The agent hands
+        // out a token that lasts minutes and is spent once, so what follows is
+        // tied to this confirmation and cannot be replayed later.
+        stage = .authorizing
+        guard let token = await model.authorizeRestore(serverID: serverID) else {
+            stage = .failed(model.lastError ?? "The agent would not authorise this restore.")
+            return
+        }
+
+        let outcome = await presence.confirm(reason: confirmationReason)
+        guard outcome.isConfirmed else {
+            stage = .failed(outcome.explanation ?? "The restore was not confirmed.")
+            return
+        }
+
+        command.authorization = token
         stage = .running
         guard await model.runRestore(command) != nil else {
             stage = .failed(model.lastError ?? "The restore was refused.")
             return
         }
+    }
+
+    /// What the system prompt says, so the person is agreeing to something
+    /// specific rather than to the word "authenticate".
+    var confirmationReason: String {
+        let what = paths.isEmpty
+            ? "everything in this snapshot"
+            : (paths.count == 1 ? paths[0] : "\(paths.count) paths")
+        return "restore \(what) to \(serverHostname)"
     }
 
     /// Called when the agent reports the outcome, so the sheet reflects what
@@ -121,6 +156,8 @@ public final class RestoreFlow: Identifiable {
                 + "\(preview.removedCount) already there that the snapshot does not contain."
         case .confirming:
             return "Type the server's hostname to confirm."
+        case .authorizing:
+            return "Waiting for Touch ID. A restore writes to the server, so it asks first."
         case .running:
             return "Restoring."
         case let .finished(_, safetySnapshotID):

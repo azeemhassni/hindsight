@@ -62,6 +62,24 @@ public struct RestoreSheetView: View {
             }
         case .preparing, .running:
             ProgressView().controlSize(.large)
+        case .authorizing:
+            VStack(spacing: 12) {
+                Image(systemName: "touchid")
+                    .font(.system(size: 44))
+                    .foregroundStyle(.tint)
+                    .accessibilityHidden(true)
+                Text("Confirm with Touch ID")
+                    .font(.headline)
+                Text("""
+                A restore writes to \(flow.serverHostname). Hindsight asks for \
+                Touch ID, or your login password, before it starts.
+                """)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(4)
+                .frame(maxWidth: 420)
+            }
+            .frame(maxWidth: .infinity)
         case .reviewing:
             reviewList
         case .confirming:
@@ -257,7 +275,7 @@ public struct RestoreSheetView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!flow.canConfirm)
                     .help(restoreHelp)
-            case .preparing, .running:
+            case .preparing, .running, .authorizing:
                 ProgressView().controlSize(.small)
             case .finished, .failed:
                 Button("Done", action: onClose)

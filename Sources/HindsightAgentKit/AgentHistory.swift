@@ -1,6 +1,7 @@
 import Foundation
 import HindsightCatalog
 import HindsightCore
+import HindsightEngine
 import HindsightProtocol
 
 /// Job history, as the interface reads it.
@@ -45,5 +46,19 @@ extension AgentCore {
             errorText: record.errorText,
             resourceUUID: record.resourceUUID
         )
+    }
+}
+
+extension JobRecord {
+    /// Copies what a finished backup measured into the row that records it.
+    ///
+    /// Without this the history shows every run at no size at all: the engine
+    /// counts the bytes and the files, and nothing was keeping them.
+    mutating func record(_ outcome: BackupOutcome) {
+        bytesProcessed = outcome.bytesProcessed
+        bytesAdded = outcome.bytesAdded
+        filesNew = outcome.filesNew
+        filesChanged = outcome.filesChanged
+        snapshotResticID = outcome.filesystemSnapshot?.id.value ?? snapshotResticID
     }
 }

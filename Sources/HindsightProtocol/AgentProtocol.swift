@@ -30,6 +30,10 @@ public enum AgentRequest: Codable, Sendable, Hashable {
     /// Takes the pre-restore safety snapshot as a side effect, because that
     /// snapshot is what the comparison is made against.
     case previewRestore(RestoreCommand)
+    /// Asks for permission to restore. The agent issues a single-use token
+    /// that expires in minutes; the app gets one only after the person has
+    /// proved they are there, with Touch ID or the login password.
+    case authorizeRestore(serverID: String)
     case runRestore(RestoreCommand)
     case updateServerSettings(ServerSettingsUpdate)
     /// Onboarding, step by step. Each is separate because each is a thing that
@@ -394,6 +398,11 @@ public struct RestoreCommand: Codable, Sendable, Hashable {
     /// restore unless it matches, so a mistyped confirmation cannot proceed.
     public var typedHostname: String
     public var optedInExclusions: [String]
+    /// The token the agent issued for this restore. Writing to a server needs
+    /// one, and one is only handed out after the person has authenticated, so
+    /// a restore cannot be started by anything that was not in front of the
+    /// Mac. A preview needs none: it changes nothing on the server.
+    public var authorization: String?
 
     public init(
         serverID: String,
@@ -402,7 +411,8 @@ public struct RestoreCommand: Codable, Sendable, Hashable {
         targetPath: String? = nil,
         mode: String,
         typedHostname: String,
-        optedInExclusions: [String] = []
+        optedInExclusions: [String] = [],
+        authorization: String? = nil
     ) {
         self.serverID = serverID
         self.snapshotID = snapshotID
@@ -411,6 +421,7 @@ public struct RestoreCommand: Codable, Sendable, Hashable {
         self.mode = mode
         self.typedHostname = typedHostname
         self.optedInExclusions = optedInExclusions
+        self.authorization = authorization
     }
 }
 
@@ -476,6 +487,7 @@ public enum AgentResponse: Codable, Sendable, Hashable {
     case hostKey(HostKeyReport)
     case probe(ServerProbeReport)
     case serverAdded(serverID: String)
+    case restoreAuthorization(token: String, expiresAt: Date)
     case coolifyTree(CoolifyTreeReport)
     case jobs([JobReport])
     case jobLog([JobLogLine])

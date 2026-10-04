@@ -142,3 +142,125 @@ private actor Captured {
     private(set) var values: [String] = []
     func record(_ value: String) { values.append(value) }
 }
+
+@MainActor
+@Suite("A restore asks the person first")
+struct RestorePresenceTests {
+    private func makeFlow(
+        presence: any UserPresenceCheck,
+        reply: @escaping @MainActor (AgentRequest) async -> AgentResponse?
+    ) -> (RestoreFlow, AppModel, Recorder) {
+        let recorder = Recorder()
+        let model = AppModel()
+        model.send = { request in
+            recorder.requests.append(request)
+            return await reply(request)
+        }
+        let flow = RestoreFlow(
+            model: model,
+            serverID: "web-01",
+            serverHostname: "web-01.example.com",
+            presence: presence
+        )
+        flow.snapshotID = "aa11bb22"
+        flow.typedHostname = "web-01.example.com"
+        flow.preview = RestorePreviewReport(
+            changes: [RestoreChange(path: "/srv/app", kind: "modified")],
+            safetySnapshotID: "ffee1122",
+            bytesAdded: 10,
+            bytesRemoved: 0
+        )
+        return (flow, model, recorder)
+    }
+
+    final class Recorder {
+        var requests: [AgentRequest] = []
+        var ranRestore: Bool {
+            requests.contains { if case .runRestore = $0 { true } else { false } }
+        }
+    }
+
+    @Test("asks for Touch ID, then sends the restore with the token it was given")
+    func confirmsBeforeRestoring() async {
+        let (flow, _, recorder) = makeFlow(presence: StubPresence(.confirmed)) { request in
+            switch request {
+            case .authorizeRestore:
+                return .restoreAuthorization(token: "token-123", expiresAt: Date().addingTimeInterval(120))
+            case .runRestore:
+                return .accepted(jobID: "job-1")
+            default:
+                return .done
+            }
+        }
+        await flow.run()
+
+        let sent = recorder.requests.compactMap { request -> RestoreCommand? in
+            if case let .runRestore(command) = request { return command }
+            return nil
+        }
+        #expect(sent.count == 1)
+        #expect(sent.first?.authorization == "token-123")
+        #expect(flow.stage == .running)
+    }
+
+    /// The point of the whole thing: saying no leaves the server untouched.
+    @Test("sends nothing when the person declines")
+    func declineStopsTheRestore() async {
+        let (flow, _, recorder) = makeFlow(presence: StubPresence(.declined)) { request in
+            if case .authorizeRestore = request {
+                return .restoreAuthorization(token: "token-123", expiresAt: Date().addingTimeInterval(120))
+            }
+            return .accepted(jobID: "job-1")
+        }
+        await flow.run()
+
+        #expect(!recorder.ranRestore)
+        guard case let .failed(message) = flow.stage else {
+            Issue.record("expected a failed stage, got \(flow.stage)")
+            return
+        }
+        #expect(message.contains("nothing was changed"))
+    }
+
+    @Test("sends nothing when the Mac cannot ask")
+    func unavailableStopsTheRestore() async {
+        let (flow, _, recorder) = makeFlow(
+            presence: StubPresence(.unavailable("no authentication is available"))
+        ) { _ in .restoreAuthorization(token: "t", expiresAt: Date().addingTimeInterval(120)) }
+        await flow.run()
+
+        #expect(!recorder.ranRestore)
+        guard case let .failed(message) = flow.stage else {
+            Issue.record("expected a failed stage, got \(flow.stage)")
+            return
+        }
+        #expect(message.contains("could not ask"))
+    }
+
+    @Test("does not ask at all when the agent refuses to authorise")
+    func refusedAuthorisationStopsBeforeThePrompt() async {
+        let (flow, _, recorder) = makeFlow(presence: StubPresence(.confirmed)) { request in
+            if case .authorizeRestore = request {
+                return .failed(message: "No server with id web-01.")
+            }
+            return .accepted(jobID: "job-1")
+        }
+        await flow.run()
+        #expect(!recorder.ranRestore)
+    }
+
+    /// The prompt has to name what is about to happen: a system dialog that
+    /// only says "authenticate" is one people approve without reading.
+    @Test("the prompt says what is about to be written, and where")
+    func reasonNamesTheServerAndScope() {
+        let (flow, _, _) = makeFlow(presence: StubPresence()) { _ in .done }
+        #expect(flow.confirmationReason.contains("web-01.example.com"))
+        #expect(flow.confirmationReason.contains("everything in this snapshot"))
+
+        flow.paths = ["/etc/nginx/nginx.conf"]
+        #expect(flow.confirmationReason.contains("/etc/nginx/nginx.conf"))
+
+        flow.paths = ["/a", "/b", "/c"]
+        #expect(flow.confirmationReason.contains("3 paths"))
+    }
+}

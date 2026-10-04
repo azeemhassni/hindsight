@@ -5,7 +5,7 @@ public enum BinaryStoreError: Error, Hashable, Sendable, CustomStringConvertible
     case noPinnedBinary(tool: String, platform: String)
     case missing(fileName: String, directory: String)
     case notExecutable(path: String)
-    case digestMismatch(fileName: String, expected: String, actual: String)
+    case digestMismatch(fileName: String, expected: String, actual: String, path: String = "")
     case unreadable(path: String, reason: String)
 
     public var description: String {
@@ -16,9 +16,10 @@ public enum BinaryStoreError: Error, Hashable, Sendable, CustomStringConvertible
             "\(fileName) is not in \(directory). Run `make vendor`."
         case let .notExecutable(path):
             "\(path) is not executable."
-        case let .digestMismatch(fileName, expected, actual):
+        case let .digestMismatch(fileName, expected, actual, path):
             """
             \(fileName) does not match its pinned digest and will not be used.
+              at       \(path.isEmpty ? "(unknown path)" : path)
               expected \(expected)
               actual   \(actual)
             """
@@ -73,7 +74,8 @@ public struct BinaryStore: Sendable {
                 throw BinaryStoreError.digestMismatch(
                     fileName: binary.fileName,
                     expected: binary.binarySHA256,
-                    actual: actual
+                    actual: actual,
+                    path: location.path
                 )
             }
         }

@@ -27,6 +27,8 @@ public actor AgentCore {
     /// Restores waiting to run, keyed by job. The command is held here rather
     /// than in the queue so the queue stays a plain scheduler.
     private var pendingRestores: [String: RestoreCommand] = [:]
+    /// Permission to write to a server, issued one restore at a time.
+    var restoreAuthorizations: [String: RestoreAuthorization] = [:]
     private var maintenanceSweep: Task<Void, Never>?
     let maintenanceSchedule = MaintenanceSchedule.default
     let notifier = Notifier()
@@ -185,7 +187,15 @@ public actor AgentCore {
                 return .failed(message: "\(error)")
             }
 
+        case let .authorizeRestore(serverID):
+            return issueRestoreAuthorization(serverID: serverID)
+
         case let .runRestore(command):
+            // Checked before anything else: an unauthorised restore should not
+            // even reach the point of looking the server up.
+            if let refusal = refusalForRestoreAuthorization(command) {
+                return .failed(message: refusal)
+            }
             guard let id = try? ServerID(validating: command.serverID),
                   let server = try? catalog.server(id),
                   let repository = try? catalog.repository(forServer: id)
@@ -544,9 +554,14 @@ public actor AgentCore {
 
         try? catalog.append("starting the backup engine", to: job.id)
         do {
+            // The outcome is the only place the counts live; without keeping it
+            // the job history shows a run with no size, which is what it did.
+            var outcome: BackupOutcome?
             for try await event in engine.run(plan) {
+                if case let .finished(result) = event { outcome = result }
                 await apply(event, to: job, server: server)
             }
+            if let outcome { record.record(outcome) }
             record.state = .succeeded
         } catch {
             record.state = .failed

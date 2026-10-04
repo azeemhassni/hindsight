@@ -126,13 +126,16 @@ struct BinaryStoreTests {
             _ = try store.verifiedURL(for: binary)
             Issue.record("expected a digest mismatch")
         } catch let error as BinaryStoreError {
-            guard case let .digestMismatch(fileName, reportedExpected, actual) = error else {
+            guard case let .digestMismatch(fileName, reportedExpected, actual, path) = error else {
                 Issue.record("unexpected error \(error)")
                 return
             }
             #expect(fileName == binary.fileName)
             #expect(reportedExpected == expected)
             #expect(actual != expected)
+            // The path is in the message because the same file name can live
+            // in a vendor directory, an app bundle and a cache.
+            #expect(path.hasSuffix(binary.fileName))
             #expect("\(error)".contains("will not be used"))
         }
     }

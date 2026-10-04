@@ -134,6 +134,21 @@ public final class AppModel {
         }
     }
 
+    /// Asks the agent for permission to write to a server. Short-lived and
+    /// single-use; the restore carries it back.
+    public func authorizeRestore(serverID: String) async -> String? {
+        guard let send else { return nil }
+        switch await send(.authorizeRestore(serverID: serverID)) {
+        case let .restoreAuthorization(token, _):
+            return token
+        case let .failed(message):
+            lastError = message
+            return nil
+        default:
+            return nil
+        }
+    }
+
     public func runRestore(_ command: RestoreCommand) async -> String? {
         guard let send else { return nil }
         switch await send(.runRestore(command)) {
