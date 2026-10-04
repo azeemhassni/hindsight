@@ -77,8 +77,10 @@ public struct ResticClient: Sendable {
         )
     }
 
+    /// Exposed so callers can reach restic subcommands that do not have a
+    /// typed wrapper yet, such as `dump` in tests.
     @discardableResult
-    func run(
+    public func run(
         _ arguments: [String],
         operation: String,
         allowedExitCodes: Set<Int32> = [0],

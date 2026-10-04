@@ -24,6 +24,9 @@ public struct RemoteFacts: Hashable, Sendable, Codable {
     public var hasPasswordlessSudo: Bool
     public var hasNice: Bool
     public var hasIonice: Bool
+    /// Needed for `pipefail`, without which a failing dump piped into restic
+    /// would be recorded as a successful backup of nothing.
+    public var hasBash: Bool
     public var dockerServerVersion: String?
     public var hasCoolifyDirectory: Bool
     public var coolifyContainers: [String]
@@ -38,6 +41,7 @@ public struct RemoteFacts: Hashable, Sendable, Codable {
         hasPasswordlessSudo: Bool,
         hasNice: Bool,
         hasIonice: Bool,
+        hasBash: Bool = false,
         dockerServerVersion: String?,
         hasCoolifyDirectory: Bool,
         coolifyContainers: [String],
@@ -50,6 +54,7 @@ public struct RemoteFacts: Hashable, Sendable, Codable {
         self.hasPasswordlessSudo = hasPasswordlessSudo
         self.hasNice = hasNice
         self.hasIonice = hasIonice
+        self.hasBash = hasBash
         self.dockerServerVersion = dockerServerVersion
         self.hasCoolifyDirectory = hasCoolifyDirectory
         self.coolifyContainers = coolifyContainers
@@ -91,6 +96,7 @@ enum RemoteFactsProbe {
     echo "home=${HOME:-/root}"
     if command -v nice >/dev/null 2>&1; then echo "has_nice=1"; else echo "has_nice=0"; fi
     if command -v ionice >/dev/null 2>&1; then echo "has_ionice=1"; else echo "has_ionice=0"; fi
+    if [ -x /bin/bash ] || command -v bash >/dev/null 2>&1; then echo "has_bash=1"; else echo "has_bash=0"; fi
     if sudo -n true >/dev/null 2>&1; then echo "has_sudo=1"; else echo "has_sudo=0"; fi
     if [ -d /data/coolify ]; then echo "coolify_dir=1"; else echo "coolify_dir=0"; fi
     if [ -f /etc/hindsight-test-target ]; then echo "test_marker=1"; else echo "test_marker=0"; fi
@@ -162,6 +168,7 @@ enum RemoteFactsProbe {
             hasPasswordlessSudo: values["has_sudo"] == "1",
             hasNice: values["has_nice"] == "1",
             hasIonice: values["has_ionice"] == "1",
+            hasBash: values["has_bash"] == "1",
             dockerServerVersion: dockerVersion,
             hasCoolifyDirectory: values["coolify_dir"] == "1",
             coolifyContainers: containers,

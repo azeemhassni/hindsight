@@ -34,6 +34,11 @@ public struct SecretRedactor: Sendable {
         SecretRedactor(ordered + secrets)
     }
 
+    /// Substring replacement, which can in principle mangle legitimate output
+    /// when a secret happens to be a substring of real data — a password that
+    /// is also a prefix of a database name, say. That is accepted: redaction
+    /// is a second line of defence for logs, and the first line is that
+    /// secrets travel in environments and never in arguments or output.
     public func redact(_ text: String) -> String {
         guard !ordered.isEmpty else { return text }
         var result = text

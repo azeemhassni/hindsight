@@ -16,7 +16,7 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_PASSWORD: hindsight
+      POSTGRES_PASSWORD: pg-test-pw-8f2a
       POSTGRES_USER: hindsight
       POSTGRES_DB: hindsight_test
     ports:
@@ -30,12 +30,12 @@ services:
   mysql:
     image: mysql:8.4
     environment:
-      MYSQL_ROOT_PASSWORD: hindsight
+      MYSQL_ROOT_PASSWORD: my-test-pw-3c7d
       MYSQL_DATABASE: hindsight_test
     ports:
       - "127.0.0.1:53306:3306"
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-phindsight"]
+      test: ["CMD", "mysqladmin", "ping", "-pmy-test-pw-3c7d"]
       interval: 3s
       timeout: 3s
       retries: 30

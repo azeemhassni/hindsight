@@ -15,6 +15,7 @@ struct RemoteFactsTests {
     home=/root
     has_nice=1
     has_ionice=1
+    has_bash=1
     has_sudo=0
     coolify_dir=1
     test_marker=1
@@ -41,6 +42,7 @@ struct RemoteFactsTests {
         #expect(facts.homeDirectory == "/root")
         #expect(facts.hasNice)
         #expect(facts.hasIonice)
+        #expect(facts.hasBash)
         #expect(!facts.hasPasswordlessSudo)
         #expect(facts.dockerServerVersion == "27.3.1")
         #expect(facts.hasDocker)

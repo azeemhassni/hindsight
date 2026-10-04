@@ -92,3 +92,20 @@
 - A small XPC surface carrying JSON, with the peer pinned to the team's code
   signature, and the `hindsight-agent` executable that owns the schedule, the
   jobs, and the catalog.
+
+## M9 — Database consistency
+
+- Detection of database containers by image, of host services by listening
+  port, and of network-reachable instances, with sidecars and exporters
+  deliberately ignored.
+- Logical dumps streamed straight into restic with no temporary file on the
+  server: Postgres in custom format with globals captured separately,
+  MySQL/MariaDB inside a transaction, MongoDB as an archive, and Redis via a
+  `BGSAVE` whose completion is confirmed by the save timestamp.
+- Each dump is its own tagged snapshot, so a database's history is queryable
+  on its own and retained under its own policy.
+- A failing dump is reported as a failure rather than stored as an empty
+  success — the shell is chosen from the server's own facts so that a failure
+  in the producing half of the pipe is actually detected.
+- Consistency is stated honestly per engine: MySQL covers InnoDB only, and
+  Redis is a point-in-time copy rather than a transaction.
