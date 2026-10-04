@@ -83,6 +83,32 @@ public enum TestEnvironment {
         return raw
     }
 
+    /// A bounded TCP connect, so an unreachable target is a quick skip rather
+    /// than a slow failure.
+    public static func canReach(host: String, port: Int, timeout: TimeInterval = 2) -> Bool {
+        let socketDescriptor = socket(AF_INET, SOCK_STREAM, 0)
+        guard socketDescriptor >= 0 else { return false }
+        defer { close(socketDescriptor) }
+
+        var deadline = timeval(
+            tv_sec: Int(timeout),
+            tv_usec: Int32((timeout - Double(Int(timeout))) * 1_000_000)
+        )
+        setsockopt(socketDescriptor, SOL_SOCKET, SO_SNDTIMEO, &deadline, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(socketDescriptor, SOL_SOCKET, SO_RCVTIMEO, &deadline, socklen_t(MemoryLayout<timeval>.size))
+
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(UInt16(port).bigEndian)
+        address.sin_addr.s_addr = inet_addr(host == "localhost" ? "127.0.0.1" : host)
+
+        return withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+                connect(socketDescriptor, socketAddress, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0
+            }
+        }
+    }
+
     private static func canConnect(host: String, port: Int) -> Bool {
         let socketDescriptor = socket(AF_INET, SOCK_STREAM, 0)
         guard socketDescriptor >= 0 else { return false }
@@ -178,17 +204,22 @@ public enum CoolifyTestEnvironment {
         return value
     }
 
-    /// Requires an explicit opt-in as well as a reachable VM.
+    /// Requires an explicit opt-in, and a virtual machine that actually answers.
     ///
     /// The virtual machine and the Docker environment share one hypervisor, and
     /// running both test suites at once makes connections to the VM fail in
     /// ways that look like Hindsight bugs. These tests are run deliberately,
     /// with `make test-coolify`.
+    ///
+    /// Reachability is checked rather than assumed: a hypervisor whose machine
+    /// networking has dropped should make these tests skip with a reason, not
+    /// fail as though Hindsight were broken.
     public static var isAvailable: Bool {
         guard ProcessInfo.processInfo.environment["HINDSIGHT_TEST_COOLIFY"] == "1" else { return false }
         guard let host, TestEnvironment.keyPath != nil else { return false }
         // The same rule as everywhere else: a private address only.
-        return NetworkPolicy.isLocalTestAddress(host)
+        guard NetworkPolicy.isLocalTestAddress(host) else { return false }
+        return TestEnvironment.canReach(host: host, port: 22)
     }
 
     public static var hasToken: Bool { isAvailable && token != nil }

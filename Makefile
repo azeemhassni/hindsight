@@ -22,8 +22,15 @@ test-integration:
 
 test-coolify:
 	./scripts/coolify-testenv.sh up
-	set -a; eval "$$(./scripts/testenv.sh env)"; eval "$$(./scripts/coolify-testenv.sh env)"; set +a; \
-		HINDSIGHT_TEST_COOLIFY=1 $(SWIFT) test --filter CoolifyIntegrationTests
+	@set -a; eval "$$(./scripts/testenv.sh env)"; eval "$$(./scripts/coolify-testenv.sh env)"; set +a; \
+		HINDSIGHT_TEST_COOLIFY=1 $(SWIFT) test --filter CoolifyIntegrationTests; \
+		status=$$?; \
+		if [ $$status -ne 0 ]; then \
+			echo ""; \
+			echo "If these were skipped, the virtual machine was unreachable."; \
+			echo "OrbStack machine networking sometimes drops; restarting OrbStack restores it."; \
+		fi; \
+		exit $$status
 
 # Builds Hindsight.app. Signs with HINDSIGHT_SIGNING_IDENTITY when it is set;
 # without it the build is unsigned, which cannot register a LaunchAgent.
