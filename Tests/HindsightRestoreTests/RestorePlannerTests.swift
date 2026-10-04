@@ -40,82 +40,92 @@ struct RestorePlannerTests {
         }
     }
 
-    @Test("zero downtime works for a running Coolify resource on named volumes")
-    func zeroDowntimeForCoolifyResource() {
+    @Test("zero downtime is never offered for a data restore, and explains why")
+    func zeroDowntimeIsNeverOfferedForData() throws {
+        // Coolify's rolling update replaces a container, not its data: the new
+        // container mounts the same named volume. Verified by reading
+        // ApplicationDeploymentJob.php — see docs/COOLIFY.md §9. Offering
+        // "zero downtime" while overwriting a shared volume beneath a running
+        // application would be a false promise.
         let availability = RestorePlanner.availability(
             scope: .coolifyResource(uuid: "abc", kind: .application),
             target: .inPlace,
             facts: coolifyApplication()
         )
-        let zero = availability.first { $0.mode == .zeroDowntime }
-        #expect(zero?.isAvailable == true)
-        // The warning is the point: no interruption is not the same as no loss.
-        #expect(zero?.dataLossWarning != nil)
-        #expect(zero?.dataLossWarning?.contains("not preserved") == true)
-    }
-
-    @Test("zero downtime is refused for a bind mount, and says so")
-    func zeroDowntimeRefusesBindMounts() {
-        let availability = RestorePlanner.availability(
-            scope: .coolifyResource(uuid: "abc", kind: .application),
-            target: .inPlace,
-            facts: coolifyApplication(bindMount: true)
-        )
-        let zero = try! #require(availability.first { $0.mode == .zeroDowntime })
+        let zero = try #require(availability.first { $0.mode == .zeroDowntime })
         #expect(!zero.isAvailable)
-        // The explanation has to name the actual obstacle, not be generic.
-        #expect(zero.explanation.contains("bind mount"))
-        #expect(zero.explanation.contains("/app/data"))
+        #expect(zero.explanation.contains("replaces a container, not its data"))
+        // And it points at what can actually be done instead.
+        #expect(zero.explanation.contains("minimal downtime"))
+        #expect(zero.explanation.contains("clone"))
+        // No mode that is unavailable should carry a data-loss caveat.
         #expect(zero.dataLossWarning == nil)
     }
 
     @Test("zero downtime is refused when nothing is running to avoid interrupting")
-    func zeroDowntimeRefusesStoppedResource() {
+    func zeroDowntimeRefusesStoppedResource() throws {
         let availability = RestorePlanner.availability(
             scope: .coolifyResource(uuid: "abc", kind: .application),
             target: .inPlace,
             facts: coolifyApplication(running: false)
         )
-        let zero = try! #require(availability.first { $0.mode == .zeroDowntime })
+        let zero = try #require(availability.first { $0.mode == .zeroDowntime })
         #expect(!zero.isAvailable)
         #expect(zero.explanation.contains("not running"))
     }
 
-    @Test("zero downtime is refused without a proxy to switch")
-    func zeroDowntimeRefusesWithoutProxy() {
-        for proxy in [CoolifyProxyFlavour.none, .unknown] {
-            let availability = RestorePlanner.availability(
-                scope: .coolifyResource(uuid: "abc", kind: .application),
-                target: .inPlace,
-                facts: coolifyApplication(proxy: proxy)
-            )
-            let zero = try! #require(availability.first { $0.mode == .zeroDowntime })
-            #expect(!zero.isAvailable, "no switchable proxy should rule out zero downtime")
-        }
-    }
-
-    @Test("zero downtime is refused for a resource with no volumes")
-    func zeroDowntimeRefusesWithoutVolumes() {
-        let availability = RestorePlanner.availability(
-            scope: .coolifyResource(uuid: "abc", kind: .application),
-            target: .inPlace,
-            facts: coolifyApplication(volumes: [])
-        )
-        let zero = try! #require(availability.first { $0.mode == .zeroDowntime })
-        #expect(!zero.isAvailable)
-        #expect(zero.explanation.contains("no persistent volumes"))
-    }
-
     @Test("zero downtime is never offered for a whole server")
-    func zeroDowntimeRefusesFullServer() {
+    func zeroDowntimeRefusesFullServer() throws {
         let availability = RestorePlanner.availability(
             scope: .fullServer,
             target: .inPlace,
             facts: coolifyApplication()
         )
-        let zero = try! #require(availability.first { $0.mode == .zeroDowntime })
+        let zero = try #require(availability.first { $0.mode == .zeroDowntime })
         #expect(!zero.isAvailable)
         #expect(zero.explanation.contains("no second server"))
+    }
+
+    @Test("no mode ever claims zero downtime for a data restore")
+    func nothingClaimsZeroDowntime() {
+        // The rule from the brief, enforced: never claim zero downtime where
+        // it is not true. Nothing available may be the zero-downtime mode.
+        for scope in [
+            RestoreScope.fullServer,
+            .paths(["/srv"]),
+            .coolifyResource(uuid: "abc", kind: .application),
+            .coolifyResource(uuid: "abc", kind: .database),
+            .databaseDump(database: "app"),
+        ] {
+            for target in [
+                RestoreTarget.inPlace,
+                .alternatePath("/tmp/x"),
+                .clone(suffix: "-restored"),
+                .anotherServer(serverID: "web-02"),
+            ] {
+                let available = RestorePlanner.availableModes(
+                    scope: scope,
+                    target: target,
+                    facts: coolifyApplication()
+                )
+                #expect(
+                    !available.contains(.zeroDowntime),
+                    "zero downtime was offered for \(scope) → \(target)"
+                )
+            }
+        }
+    }
+
+    @Test("a clone restore is offered as a way to look without touching")
+    func cloneIsOffered() {
+        let modes = RestorePlanner.availableModes(
+            scope: .coolifyResource(uuid: "abc", kind: .database),
+            target: .clone(suffix: "-restored"),
+            facts: coolifyApplication()
+        )
+        #expect(modes.contains(.standard))
+        #expect(RestoreTarget.clone(suffix: "-x").isClone)
+        #expect(!RestoreTarget.clone(suffix: "-x").isInPlace)
     }
 
     @Test("zero downtime is not offered for something Coolify does not manage")
@@ -177,7 +187,12 @@ struct RestorePlannerTests {
             .coolifyResource(uuid: "abc", kind: .database),
             .databaseDump(database: "app"),
         ] {
-            for target in [RestoreTarget.inPlace, .alternatePath("/tmp/x"), .anotherServer(serverID: "web-02")] {
+            for target in [
+                RestoreTarget.inPlace,
+                .alternatePath("/tmp/x"),
+                .clone(suffix: "-restored"),
+                .anotherServer(serverID: "web-02"),
+            ] {
                 for availability in RestorePlanner.availability(
                     scope: scope,
                     target: target,
@@ -192,14 +207,14 @@ struct RestorePlannerTests {
         }
     }
 
-    @Test("only zero downtime ever carries a data-loss warning")
-    func onlyZeroDowntimeWarnsAboutLoss() {
+    @Test("no available mode carries a data-loss caveat, because none loses data")
+    func noAvailableModeLosesData() {
         let availability = RestorePlanner.availability(
             scope: .coolifyResource(uuid: "abc", kind: .application),
             target: .inPlace,
             facts: coolifyApplication()
         )
-        for entry in availability where entry.mode != .zeroDowntime {
+        for entry in availability where entry.isAvailable {
             #expect(entry.dataLossWarning == nil, "\(entry.mode) must not claim a data-loss caveat")
         }
     }
@@ -211,7 +226,7 @@ struct RestorePlannerTests {
                 scope: .coolifyResource(uuid: "abc", kind: .application),
                 target: .inPlace,
                 facts: coolifyApplication()
-            ) == .zeroDowntime
+            ) == .minimalDowntime
         )
         #expect(
             RestorePlanner.recommendedMode(

@@ -23,10 +23,18 @@ public enum RestoreScope: Sendable, Hashable, Codable {
 public enum RestoreTarget: Sendable, Hashable, Codable {
     case inPlace
     case alternatePath(String)
+    /// A parallel copy under a new name, for looking at without touching the
+    /// live resource.
+    case clone(suffix: String)
     case anotherServer(serverID: String)
 
     public var isInPlace: Bool {
         if case .inPlace = self { return true }
+        return false
+    }
+
+    public var isClone: Bool {
+        if case .clone = self { return true }
         return false
     }
 }
@@ -179,87 +187,68 @@ public enum RestorePlanner {
         availableModes(scope: scope, target: target, facts: facts).first ?? .standard
     }
 
+    /// Never available, with the reason spelled out.
+    ///
+    /// Coolify's own rolling update is real blue/green, but it replaces the
+    /// container, not the data: the new container is generated from the same
+    /// compose file and mounts the same named volume as the old one — see
+    /// `docs/COOLIFY.md` §9, read from `ApplicationDeploymentJob.php`.
+    ///
+    /// Restoring data without interruption would mean restoring into a new
+    /// volume and repointing the resource at it, and that volume list lives in
+    /// Coolify's own database, which Hindsight will not write to. Offering a
+    /// "zero downtime" that overwrites a shared volume under a running
+    /// container would be the dishonest kind: no interruption to requests,
+    /// while the application reads data shifting beneath it.
+    ///
+    /// The mode is still described rather than hidden, because a person
+    /// comparing options deserves to know why it is not on offer.
     static func zeroDowntime(
         scope: RestoreScope,
         target: RestoreTarget,
         facts: RestoreFacts
     ) -> RestoreModeAvailability {
-        let warning = """
-        Writes made between the snapshot and the moment traffic switches over \
-        are not preserved. Zero downtime means no interruption to requests, \
-        not no loss of recent data.
-        """
-
         func unavailable(_ reason: String) -> RestoreModeAvailability {
             RestoreModeAvailability(mode: .zeroDowntime, isAvailable: false, explanation: reason)
         }
 
-        guard case .fullServer = scope else {
-            guard facts.isCoolifyManaged else {
-                return unavailable("""
-                Zero downtime needs something that can run a second copy and \
-                have traffic switched to it. This selection is not managed by \
-                Coolify, so Hindsight has nothing to switch.
-                """)
-            }
-            guard target.isInPlace else {
-                return unavailable("""
-                Zero downtime only applies to replacing a live resource. \
-                Restoring to another location has no traffic to switch.
-                """)
-            }
-            guard facts.hasRunningContainer else {
-                return unavailable("""
-                This resource is not running, so there is no downtime to \
-                avoid. Use the standard restore.
-                """)
-            }
-            guard facts.proxy != .none else {
-                return unavailable("""
-                No Coolify proxy was found on this server, so there is no \
-                routing to switch.
-                """)
-            }
-            guard facts.proxy != .unknown else {
-                return unavailable("""
-                The proxy on this server is not one Hindsight knows how to \
-                switch routing on.
-                """)
-            }
-            let bindMounts = facts.volumes.filter { !$0.isNamedVolume }
-            guard bindMounts.isEmpty else {
-                return unavailable("""
-                This resource uses bind mounts (\(bindMounts.map(\.mountPath).joined(separator: ", "))), \
-                so a second copy would read the same files as the live one. \
-                Zero downtime needs named volumes that can be duplicated.
-                """)
-            }
-            guard !facts.volumes.isEmpty else {
-                return unavailable("""
-                This resource has no persistent volumes, so there is nothing \
-                to restore into a parallel copy.
-                """)
-            }
-            return RestoreModeAvailability(
-                mode: .zeroDowntime,
-                isAvailable: true,
-                explanation: facts.isDatabase
-                    ? """
-                    Restores into a new database instance and switches the \
-                    connection over once it is healthy.
-                    """
-                    : """
-                    Restores into new volumes, starts a parallel container, \
-                    health-checks it, then switches the proxy over.
-                    """,
-                dataLossWarning: warning
-            )
+        if case .fullServer = scope {
+            return unavailable("""
+            A whole server cannot be replaced without interruption: there is \
+            no second server to switch to.
+            """)
+        }
+
+        guard facts.isCoolifyManaged else {
+            return unavailable("""
+            Zero downtime needs something that can run a second copy and have \
+            traffic switched to it. This selection is not managed by Coolify, \
+            so Hindsight has nothing to switch.
+            """)
+        }
+
+        guard target.isInPlace else {
+            return unavailable("""
+            Zero downtime only applies to replacing live data. Restoring \
+            somewhere else does not interrupt anything in the first place.
+            """)
+        }
+
+        if !facts.hasRunningContainer {
+            return unavailable("""
+            This resource is not running, so there is no downtime to avoid. \
+            Use the standard restore.
+            """)
         }
 
         return unavailable("""
-        A whole server cannot be replaced without interruption: there is no \
-        second server to switch to. Restore a single resource for that, or use \
-        minimal downtime.
+        Coolify's rolling update replaces a container, not its data: the new \
+        container mounts the same volume as the old one. Restoring data \
+        without interruption would mean repointing the resource at a new \
+        volume, which only Coolify's own database can do, and Hindsight will \
+        not write to it. Use minimal downtime, which stages the restore while \
+        the resource is up and swaps it in during a brief stop — or restore as \
+        a clone to inspect the data without touching the live copy.
         """)
     }
 
@@ -278,6 +267,7 @@ public enum RestorePlanner {
             elsewhere does not touch the live copy, so there is no downtime.
             """)
         }
+        _ = facts.coolifySupportsRollingUpdate
         guard facts.stagingIsOnSameFilesystem else {
             return unavailable("""
             The restored data cannot be staged on the same filesystem as the \

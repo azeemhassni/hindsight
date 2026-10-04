@@ -222,7 +222,57 @@ before treating a container as a backup target. There is a test for exactly
 this, because backing up the proxy as if it were someone's application would be
 both wrong and confusing.
 
-## 9. Still unverified
+## 9. Coolify's rolling update, and why zero-downtime data restore is not offered
+
+The brief asked for this to be researched and reported before any blue/green
+code was written. Read from `app/Jobs/ApplicationDeploymentJob.php` on `main`.
+
+**What Coolify does natively.** `rolling_update()` is real blue/green, for
+**applications only** — databases and services do not go through the
+deployment job at all:
+
+- On Docker Swarm: `docker stack deploy`, and Swarm handles the rollover.
+- Otherwise: `start_by_compose_file()` → `health_check()` →
+  `stop_running_container()`. The new container is started, waited on until
+  healthy, and only then is the old one gracefully shut down.
+
+**When Coolify refuses to roll.** It force-stops first, accepting downtime, if
+any of these hold: the application maps ports to the host; the "consistent
+container name" setting is on; a custom internal name is set; it is a pull
+request deployment; or custom docker run options set `--ip`/`--ip6`.
+
+**Why that does not give a zero-downtime data restore.** The new container is
+built from the same compose file, and `generate_local_persistent_volumes()`
+reads the volume list out of Coolify's own database. Both the old and the new
+container therefore mount **the same named volume**. Coolify's rolling update
+replaces the container and the image; it never replaces the data underneath.
+
+So restoring a resource's data without interruption would mean restoring into a
+*new* volume and then pointing the resource at it — and the volume list lives
+in Coolify's `local_persistent_volumes` table. Doing that means writing to
+Coolify's private database, which Hindsight will not do: it is a private
+interface, it would fight Coolify's own state, and getting it wrong would break
+a resource in a way the person did not ask for.
+
+**The conclusion, and what Hindsight does instead.**
+
+1. Zero downtime is **not offered** for restoring data, and the UI says why in
+   those terms. Claiming it while a shared volume is being overwritten
+   underneath a running container would be the dishonest kind of
+   zero-downtime — no interruption to requests, while the application reads
+   data changing beneath it.
+2. **Minimal downtime** is offered and real: stage the restore beside the live
+   data, then stop, swap with renames, start. The transfer happens while the
+   resource is up; the outage is the stop and start.
+3. **Clone** is offered and genuinely has no impact: restore into a new volume
+   under a new name, for inspection or for recovering a few files, without
+   touching the live resource at all.
+
+If Coolify later exposes volume rewiring through its API, zero-downtime data
+restore becomes possible without touching its database, and this decision
+should be revisited.
+
+## 10. Still unverified
 
 Honest gaps, to be closed before the features that depend on them:
 
@@ -231,8 +281,6 @@ Honest gaps, to be closed before the features that depend on them:
   their labels are expected to follow the same shape (`coolify.type=application`,
   `coolify.applicationId=<numeric>`, identity via the compose project) but that
   is inference from the database case plus the source, not observation.
-- **Coolify's native rolling update**, which gates restore mode 1. Not yet
-  examined; required before M12.
 - **Restoring a Coolify instance** end to end into a fresh VM.
 - Whether `coolify-proxy` is absent until a resource needs it: it was running
   here after the first deploy, but a brand-new install may not have it.

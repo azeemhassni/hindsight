@@ -593,20 +593,30 @@ possible **and why the others are not** — e.g. "Minimal downtime unavailable:
 this resource uses a bind mount under `/data` on the same filesystem as the live
 path, so an atomic rename is not possible."
 
-1. **Zero-downtime (blue/green).** Restore into new volumes or directories,
-   start a parallel container on the restored data, health-check it, switch
-   routing at the proxy or through Coolify's own rolling-update mechanism, then
-   retire the old container. Databases restore into a new instance and the
-   connection is swapped. Requires: a resource Coolify manages, a proxy whose
-   routing can be switched, and named volumes rather than in-place binds.
-   **The UI must state that writes between the snapshot and the switch are
-   lost.** Implementation is gated on the Milestone-10 research into what
-   Coolify supports natively; a report precedes any code.
+1. **Zero-downtime (blue/green) — researched, and not offered.** Coolify's own
+   `rolling_update()` is real blue/green, but it replaces the *container*, not
+   the data: the new container is generated from the same compose file and
+   mounts the same named volume as the old one, because the volume list comes
+   from Coolify's database. Restoring data without interruption would mean
+   repointing the resource at a new volume, and only Coolify's own database can
+   do that — which Hindsight will not write to.
+
+   So the mode is described in the UI and marked unavailable, with that reason,
+   rather than hidden or faked. Overwriting a shared volume beneath a running
+   application while calling it zero downtime would be exactly the dishonest
+   case the brief rules out. Full reasoning and sources in `docs/COOLIFY.md`
+   §9. If Coolify later exposes volume rewiring through its API, this becomes
+   possible and should be revisited.
 2. **Minimal downtime.** Stage restored data beside the live data on the same
    filesystem, then stop, swap with `rename(2)`, start. Downtime is the stop and
    start, shown as an estimate derived from the container's observed start time.
    Requires same-filesystem staging space.
 3. **Standard.** Stop, restore, start. Always available.
+
+Alongside the modes, the **clone** target restores into a new volume under a new
+name. It touches nothing live, which makes it the honest answer to "I want to
+look at this data without risking the running copy" — the need zero-downtime
+restore was reached for.
 
 ### 14.4 Hard exclusions
 

@@ -145,3 +145,15 @@
   files byte for byte with permissions intact, the staged swap completes in
   well under a second, an alternate-path restore leaves the live copy alone,
   and a plan that would cut off access is refused before anything is written.
+
+## M12 — The blue/green research, and what it changed
+
+- Read Coolify's `rolling_update()`: it is real blue/green for applications,
+  but it replaces the container, not the data — the new container mounts the
+  same named volume, because the volume list comes from Coolify's database.
+- Zero-downtime **data** restore would therefore require writing to Coolify's
+  private database. Hindsight will not, so the mode is not offered. It stays
+  visible in the UI, marked unavailable, with that reason given.
+- A test now sweeps every scope and target combination to prove nothing is ever
+  reported as zero downtime, and the `clone` target gives the honest answer to
+  the need behind it: a parallel copy that touches nothing live.
