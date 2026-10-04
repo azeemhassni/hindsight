@@ -76,3 +76,19 @@
 - Verified locally: a corrupted pack is caught by reading data, a full rotation
   finds damage anywhere in the repository, and pruning leaves a healthy
   repository that is smaller than before.
+
+## M6 — Scheduling, agent, and the XPC surface
+
+- Five-field cron parser, written rather than borrowed, including the rule that
+  a restricted day-of-month and day-of-week combine as "or".
+- Cadence evaluation that survives both clock changes and leap days, keeps
+  "every N hours" aligned to midnight across restarts, and turns a long sleep
+  into exactly one catch-up run rather than a backlog.
+- An AC-power policy that defers rather than skips.
+- A scheduler actor with one coalescing timer, and a job queue that serialises
+  per repository while saying which job is waiting and why.
+- The Keychain store, with `kSecAttrAccessibleAfterFirstUnlock` so scheduled
+  backups work on a locked Mac, and an in-memory store for tests.
+- A small XPC surface carrying JSON, with the peer pinned to the team's code
+  signature, and the `hindsight-agent` executable that owns the schedule, the
+  jobs, and the catalog.

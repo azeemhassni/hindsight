@@ -12,6 +12,9 @@ let package = Package(
         .library(name: "HindsightCatalog", targets: ["HindsightCatalog"]),
         .library(name: "HindsightEngine", targets: ["HindsightEngine"]),
         .library(name: "HindsightSchedule", targets: ["HindsightSchedule"]),
+        .library(name: "HindsightProtocol", targets: ["HindsightProtocol"]),
+        .library(name: "HindsightKeychain", targets: ["HindsightKeychain"]),
+        .executable(name: "hindsight-agent", targets: ["hindsight-agent"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", exact: "7.11.1"),
@@ -47,6 +50,30 @@ let package = Package(
         .target(
             name: "HindsightSchedule",
             dependencies: ["HindsightCore"],
+            swiftSettings: .common
+        ),
+        .target(
+            name: "HindsightKeychain",
+            dependencies: ["HindsightCore"],
+            swiftSettings: .common
+        ),
+        .target(
+            name: "HindsightProtocol",
+            dependencies: ["HindsightCore"],
+            swiftSettings: .common
+        ),
+        .executableTarget(
+            name: "hindsight-agent",
+            dependencies: [
+                "HindsightCore",
+                "HindsightCatalog",
+                "HindsightEngine",
+                "HindsightProtocol",
+                "HindsightRestic",
+                "HindsightSSH",
+                "HindsightSchedule",
+                "HindsightKeychain",
+            ],
             swiftSettings: .common
         ),
         .target(
@@ -89,6 +116,16 @@ let package = Package(
         .testTarget(
             name: "HindsightCatalogTests",
             dependencies: ["HindsightCatalog"],
+            swiftSettings: .common
+        ),
+        .testTarget(
+            name: "HindsightKeychainTests",
+            dependencies: ["HindsightKeychain"],
+            swiftSettings: .common
+        ),
+        .testTarget(
+            name: "HindsightProtocolTests",
+            dependencies: ["HindsightProtocol"],
             swiftSettings: .common
         ),
         .testTarget(
