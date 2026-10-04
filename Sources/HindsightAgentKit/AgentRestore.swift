@@ -54,6 +54,7 @@ extension AgentCore {
         jobID: JobID,
         _ body: @Sendable @escaping (RestoreSession, SSHClient, SSHDestination, ResticClient) async throws -> T
     ) async throws -> T {
+        refreshSSHConfiguration()
         let paths = sshPaths()
         let client = SSHClient(paths: paths, policy: .fromEnvironment())
         let destination = SSHDestination(
@@ -68,12 +69,16 @@ extension AgentCore {
         let remoteRestic = try await RemoteBinaryInstaller(client: client, store: store)
             .ensureInstalled(binary, on: destination, facts: facts)
 
+        // Served from where this server's repository actually is, which is
+        // chosen during onboarding and recorded in the catalog.
+        let repositoryURL = URL(fileURLWithPath: repository.path)
+        let repositoryRoot = repositoryURL.deletingLastPathComponent()
         let credential = RestServerCredential.generate(username: server.id.value)
         let restServer = RestServer(
             configuration: RestServer.Configuration(
-                repositoryRoot: configuration.repositoryRoot,
+                repositoryRoot: repositoryRoot,
                 credential: credential,
-                htpasswdFile: configuration.repositoryRoot
+                htpasswdFile: repositoryRoot
                     .appendingPathComponent(".hindsight-htpasswd-\(UUID().uuidString)"),
                 executable: try store.verifiedURL(for: try PinnedBinaries.hostRestServer)
             )
@@ -87,7 +92,7 @@ extension AgentCore {
             ) { remotePort in
                 let url = await restServer.repositoryURL(
                     remotePort: remotePort,
-                    serverID: server.id
+                    repositoryName: repositoryURL.lastPathComponent
                 )
                 let session = RestoreSession(
                     jobID: jobID,

@@ -19,6 +19,7 @@ extension AgentCore {
               let server = try? catalog.server(id)
         else { return .failed(message: "No server with id \(serverID).") }
 
+        refreshSSHConfiguration()
         let paths = sshPaths()
         let client = SSHClient(paths: paths, policy: .fromEnvironment())
         let destination = SSHDestination(server: server, identityFile: identityFile(for: server, paths: paths))
@@ -138,6 +139,7 @@ extension AgentCore {
         server: Server,
         repository: RepositoryRecord
     ) async throws {
+        refreshSSHConfiguration()
         let paths = sshPaths()
         let client = SSHClient(paths: paths, policy: .fromEnvironment())
         let destination = SSHDestination(server: server, identityFile: identityFile(for: server, paths: paths))
@@ -166,9 +168,10 @@ extension AgentCore {
                 excludePatterns: [],
                 bandwidthLimitKiBPerSecond: repository.bandwidthLimitKiB
             ),
-            repositoryRoot: configuration.repositoryRoot,
+            repositoryRoot: URL(fileURLWithPath: repository.path).deletingLastPathComponent(),
             repositoryPassword: try await secretOrCreate(.repositoryPassword(server.id)),
-            extraTags: resource.snapshotTags
+            extraTags: resource.snapshotTags,
+            repositoryName: URL(fileURLWithPath: repository.path).lastPathComponent
         )
 
         let outcome = try await engine.backUp(resource: resource, plan: plan) { [weak self] event in

@@ -60,7 +60,7 @@ extension BackupEngine {
                 ) { remotePort in
                     let repositoryURL = await server.repositoryURL(
                         remotePort: remotePort,
-                        serverID: plan.server.id
+                        repositoryName: plan.repositoryName
                     )
                     let repositorySecret = Secret(
                         label: "rest-repository/\(plan.server.id.value)",

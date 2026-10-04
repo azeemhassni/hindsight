@@ -69,7 +69,7 @@ public actor AgentCore {
     /// Nothing is running them any more, so leaving them `running` would show a
     /// backup in progress for ever — and the interface would be right to
     /// believe the catalog.
-    private func reconcileInterruptedJobs() {
+    func reconcileInterruptedJobs() {
         guard let active = try? catalog.activeJobs() else { return }
         for var job in active {
             job.state = .failed
@@ -251,6 +251,32 @@ public actor AgentCore {
         case let .jobLog(jobID):
             return jobLog(jobID: jobID)
 
+        case let .listSnapshotDirectory(serverID, snapshotID, path):
+            return await listSnapshotDirectory(
+                serverID: serverID,
+                snapshotID: snapshotID,
+                path: path
+            )
+
+        case let .extractFile(serverID, snapshotID, path):
+            return await extractFile(serverID: serverID, snapshotID: snapshotID, path: path)
+
+        case let .recoveryKit(serverID):
+            return await recoveryKit(serverID: serverID)
+
+        case .restartAgent:
+            // Replied to first, then gone: launchd brings the new one back.
+            // Anything in flight is closed off here rather than at the next
+            // startup, so a restart can never leave a row saying "running"
+            // with nothing running it.
+            Task {
+                try? await Task.sleep(for: .milliseconds(200))
+                await stop()
+                reconcileInterruptedJobs()
+                exit(0)
+            }
+            return .done
+
         case let .serverSettings(serverID):
             do {
                 return .settings(try await settings(forServer: serverID))
@@ -305,7 +331,12 @@ public actor AgentCore {
             )
         }
 
-        return AgentStatus(version: version, servers: servers, runningJobs: Array(running.values))
+        return AgentStatus(
+            version: version,
+            servers: servers,
+            runningJobs: Array(running.values),
+            binaryIdentity: CodeIdentity.binaryIdentity
+        )
     }
 
     public static func health(lastBackupAt: Date?, lastCheckPassed: Bool) -> ServerStatus.Health {
@@ -370,6 +401,32 @@ public actor AgentCore {
         record.state = .running
         record.startedAt = Date()
         try catalog.save(record)
+
+        do {
+            try await perform(job, record: &record, server: server, repository: repository)
+        } catch {
+            // Every way out leads here. Preparation failed outside the engine's
+            // own handler once — an unreadable secret, a profile the catalog
+            // could not satisfy — and the row stayed "running" for ever with
+            // nothing running it, which is worse than any error message.
+            if record.state == .running {
+                record.state = .failed
+                record.errorText = "\(error)"
+                record.finishedAt = Date()
+                try? catalog.save(record)
+                try? catalog.append("\(error)", level: .error, to: job.id)
+                notifier.backupFailed(server: server.name, reason: "\(error)")
+            }
+            throw error
+        }
+    }
+
+    private func perform(
+        _ job: QueuedJob,
+        record: inout JobRecord,
+        server: Server,
+        repository: RepositoryRecord
+    ) async throws {
 
         switch job.kind {
         case .forgetAndPrune, .check:
@@ -446,6 +503,8 @@ public actor AgentCore {
                 .urls(for: .cachesDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("Hindsight/cm")
         )
+        try? catalog.append("preparing the connection", to: job.id)
+        refreshSSHConfiguration()
         let client = SSHClient(paths: paths, policy: .fromEnvironment())
         let engine = BackupEngine(
             client: client,
@@ -469,14 +528,21 @@ public actor AgentCore {
             bandwidthLimitKiBPerSecond: repository.bandwidthLimitKiB
         )
 
+        try? catalog.append("reading this server's repository password", to: job.id)
+        // From the catalog, not from the configuration: the location is chosen
+        // during onboarding, and writing somewhere else would leave prune,
+        // check and restore working on an empty directory.
+        let repositoryURL = URL(fileURLWithPath: repository.path)
         let plan = BackupPlan(
             server: server,
             destination: SSHDestination(server: server, identityFile: identityFile),
             profile: profile,
-            repositoryRoot: configuration.repositoryRoot,
-            repositoryPassword: try await secretOrCreate(.repositoryPassword(server.id))
+            repositoryRoot: repositoryURL.deletingLastPathComponent(),
+            repositoryPassword: try await secretOrCreate(.repositoryPassword(server.id)),
+            repositoryName: repositoryURL.lastPathComponent
         )
 
+        try? catalog.append("starting the backup engine", to: job.id)
         do {
             for try await event in engine.run(plan) {
                 await apply(event, to: job, server: server)
@@ -496,16 +562,26 @@ public actor AgentCore {
 
         // Reconcile the catalog with what the repository now holds, so a prune
         // somewhere else cannot leave the timeline showing snapshots that are
-        // gone.
-        if let local = try? await localClient(for: server, repository: repository),
-           let listed = try? await local.snapshots() {
-            try? catalog.record(
-                listed.map { $0.toSnapshot() },
-                inRepository: repository.id
-            )
-            _ = try? catalog.retainOnly(
+        // gone. A failure here is a warning on the job rather than a silence:
+        // a timeline that quietly disagrees with the repository is worse than
+        // one that says it could not be checked.
+        do {
+            let local = try await localClient(for: server, repository: repository)
+            let listed = try await local.snapshots()
+            try catalog.record(listed.map { $0.toSnapshot() }, inRepository: repository.id)
+            let removed = try catalog.retainOnly(
                 resticIDs: Set(listed.map(\.id)),
                 inRepository: repository.id
+            )
+            try? catalog.append(
+                "recorded \(listed.count) snapshots, forgot \(removed) that are gone",
+                to: job.id
+            )
+        } catch {
+            try? catalog.append(
+                "Could not reconcile the snapshot list with the repository: \(error)",
+                level: .warning,
+                to: job.id
             )
         }
 
@@ -606,6 +682,24 @@ final class ScheduleRunnerBox: @unchecked Sendable {
 
     func enqueue(_ entry: ScheduledEntry) async {
         await core?.enqueueScheduled(entry)
+    }
+}
+
+extension AgentCore {
+    /// Test seams. Used only by tests, and named so that is obvious.
+    func forgetSecretsForTesting() {
+        guard let store = secrets as? InMemorySecretStore,
+              let servers = try? catalog.servers()
+        else { return }
+        for server in servers {
+            try? store.delete(.repositoryPassword(server.id))
+        }
+    }
+
+    func breakRepositoryPathForTesting(serverID: ServerID) {
+        guard var repository = try? catalog.repository(forServer: serverID) else { return }
+        repository.path = "/nowhere/\(UUID().uuidString)"
+        try? catalog.save(repository)
     }
 }
 

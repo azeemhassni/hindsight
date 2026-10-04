@@ -144,7 +144,7 @@ public struct BackupEngine: Sendable {
                 ) { remotePort in
                     let repositoryURL = await server.repositoryURL(
                         remotePort: remotePort,
-                        serverID: plan.server.id
+                        repositoryName: plan.repositoryName
                     )
                     // The URL carries the credential, so it travels as a secret:
                     // in argv it would be visible to every user on the server.

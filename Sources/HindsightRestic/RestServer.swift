@@ -128,7 +128,14 @@ public actor RestServer {
     /// The repository URL the server being backed up should use, given the port
     /// sshd allocated on its side of the tunnel.
     public func repositoryURL(remotePort: Int, serverID: ServerID) -> String {
-        "rest:http://\(configuration.credential.urlUserInfo)@127.0.0.1:\(remotePort)/\(serverID.value)/"
+        repositoryURL(remotePort: remotePort, repositoryName: serverID.value)
+    }
+
+    /// The repository is addressed by its directory name under the served
+    /// root, which is not always the server's id: the location is chosen
+    /// during onboarding.
+    public func repositoryURL(remotePort: Int, repositoryName: String) -> String {
+        "rest:http://\(configuration.credential.urlUserInfo)@127.0.0.1:\(remotePort)/\(repositoryName)/"
     }
 
     static func parsePort(from line: String) -> Int? {

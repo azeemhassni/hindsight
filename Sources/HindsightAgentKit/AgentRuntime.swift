@@ -66,9 +66,9 @@ public final class AgentListenerDelegate: NSObject, NSXPCListenerDelegate, @unch
     ) -> Bool {
         // Anyone who can reach this service can drive backups and restores, so
         // the peer is pinned to this team's signature before anything else.
-        if let team = ConnectionSecurity.teamIdentifierFromEnvironment {
+        if let team = ConnectionSecurity.teamIdentifier {
             connection.setCodeSigningRequirement(
-                ConnectionSecurity.codeSigningRequirement(teamIdentifier: team)
+                ConnectionSecurity.appRequirement(teamIdentifier: team)
             )
         }
 

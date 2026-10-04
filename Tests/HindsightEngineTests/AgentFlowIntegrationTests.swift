@@ -3,10 +3,12 @@ import HindsightCatalog
 import HindsightCore
 import HindsightKeychain
 import HindsightProtocol
+import HindsightRestic
 import HindsightSSH
 import HindsightTestSupport
 import Testing
 @testable import HindsightAgentKit
+@testable import HindsightEngine
 
 /// The requests the interface makes, against the local Docker container.
 ///
@@ -177,5 +179,123 @@ struct AgentFlowIntegrationTests {
         // The log has to say why, because that is the only place a person can
         // find out.
         #expect(lines.contains { $0.message.contains("does-not-exist") })
+    }
+}
+
+@Suite("Where backups are written")
+struct RepositoryLocationTests {
+    /// The location is chosen during onboarding and recorded in the catalog.
+    /// A plan that derived it from the agent's default root instead wrote
+    /// backups under Application Support while prune, check and restore worked
+    /// on the empty directory the person had picked — found by installing the
+    /// app and watching `du` report nothing where the backups were supposed to
+    /// be.
+    @Test("a plan backs up to the repository the catalog records")
+    func planUsesTheRecordedRepository() throws {
+        let server = try TestEnvironment.server(id: "web-01")
+        let chosen = URL(fileURLWithPath: "/Volumes/Backups/Hindsight/web-01")
+        let plan = BackupPlan(
+            server: server,
+            destination: try TestEnvironment.destination(id: "web-01"),
+            repositoryRoot: chosen.deletingLastPathComponent(),
+            repositoryPassword: Secret(label: "repo", value: "x"),
+            repositoryName: chosen.lastPathComponent
+        )
+        #expect(plan.repositoryURL.path == chosen.path)
+        #expect(plan.repositoryRoot.path == "/Volumes/Backups/Hindsight")
+    }
+
+    @Test("the server reaches the same repository through the tunnel")
+    func restServerAddressesTheSameDirectory() async throws {
+        let root = try TestEnvironment.temporaryRepositoryRoot()
+        let credential = RestServerCredential.generate(username: "web-01")
+        let server = RestServer(
+            configuration: RestServer.Configuration(
+                repositoryRoot: root,
+                credential: credential,
+                htpasswdFile: root.appendingPathComponent(".htpasswd"),
+                executable: try BinaryStore(directory: TestEnvironment.vendorBinDirectory())
+                    .verifiedURL(for: try PinnedBinaries.hostRestServer)
+            )
+        )
+        // The directory name, not the server id: they are the same by
+        // convention and must stay addressable even when they are not.
+        let url = await server.repositoryURL(remotePort: 1234, repositoryName: "chosen-name")
+        #expect(url.hasSuffix("/chosen-name/"))
+    }
+
+    @Test("a server's repository name defaults to its id")
+    func defaultsToTheServerID() throws {
+        let plan = BackupPlan(
+            server: try TestEnvironment.server(id: "web-01"),
+            destination: try TestEnvironment.destination(id: "web-01"),
+            repositoryRoot: URL(fileURLWithPath: "/tmp/repos"),
+            repositoryPassword: Secret(label: "repo", value: "x")
+        )
+        #expect(plan.repositoryURL.path == "/tmp/repos/web-01")
+    }
+}
+
+@Suite("The managed ssh config")
+struct SSHConfigurationRefreshTests {
+    /// Written before anything that uses ssh, not only during onboarding. A
+    /// server added after the last write had no stanza, and every job for it
+    /// failed with "could not resolve hostname hs-…" — which reads like a DNS
+    /// fault and is not one.
+    @Test("covers every server, including ones added since the last write")
+    func coversEveryServer() async throws {
+        let base = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("hindsight sshconfig \(UUID().uuidString)")
+        let configuration = AgentConfiguration(
+            catalogURL: base.appendingPathComponent("catalog.sqlite"),
+            repositoryRoot: base.appendingPathComponent("repos"),
+            sshConfigurationDirectory: base.appendingPathComponent("ssh"),
+            binaryDirectory: TestEnvironment.vendorBinDirectory()
+        )
+        let catalog = try Catalog.open(at: configuration.catalogURL)
+        let core = AgentCore(
+            configuration: configuration,
+            catalog: catalog,
+            secrets: InMemorySecretStore(),
+            version: "test"
+        )
+
+        for name in ["web-01", "web-02"] {
+            try catalog.save(
+                try Server(
+                    id: try ServerID(validating: name),
+                    name: name,
+                    endpoint: try SSHEndpoint(host: "127.0.0.1", port: 2222, user: "root"),
+                    authentication: .managedKey,
+                    privilege: .root
+                )
+            )
+        }
+
+        await core.refreshSSHConfiguration()
+        let text = try String(
+            contentsOf: configuration.sshConfigurationDirectory
+                .appendingPathComponent("config"),
+            encoding: .utf8
+        )
+        #expect(text.contains("Host hs-web-01"))
+        #expect(text.contains("Host hs-web-02"))
+        // And the path it writes contains a space, so the quoting holds here too.
+        #expect(text.contains("\"\(configuration.sshConfigurationDirectory.path)/known_hosts\""))
+    }
+
+    @Test("writes one stanza per server, because ssh takes the first match")
+    func writesOneStanzaPerServer() throws {
+        let base = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("hindsight dupe \(UUID().uuidString)")
+        let paths = SSHPaths(
+            configurationDirectory: base.appendingPathComponent("ssh"),
+            preferredControlDirectory: base.appendingPathComponent("cm")
+        )
+        try paths.prepare()
+        let destination = try TestEnvironment.destination(id: "web-01")
+        let text = try SSHConfiguration(paths: paths)
+            .render(for: [destination, destination, destination])
+        #expect(text.components(separatedBy: "Host hs-web-01").count - 1 == 1)
     }
 }

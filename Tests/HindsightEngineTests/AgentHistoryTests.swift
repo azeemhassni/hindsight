@@ -208,3 +208,66 @@ struct AgentSettingsReportTests {
         #expect(profile.bandwidthLimitKiBPerSecond == 512)
     }
 }
+
+@Suite("Finding the vendored binaries")
+struct BundledBinaryDirectoryTests {
+    private func makeBundle(
+        _ layout: [String],
+        vendoredIn: String?
+    ) throws -> URL {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("hindsight-bundle-\(UUID().uuidString)")
+        for path in layout {
+            try FileManager.default.createDirectory(
+                at: root.appendingPathComponent(path),
+                withIntermediateDirectories: true
+            )
+        }
+        if let vendoredIn {
+            try Data("x".utf8).write(
+                to: root.appendingPathComponent(vendoredIn)
+                    .appendingPathComponent("restic-0.19.1-darwin_arm64")
+            )
+        }
+        return root
+    }
+
+    /// The agent is a small bundle nested inside the app, and the binaries are
+    /// shipped once — in the outer bundle. Looking only at its own Resources is
+    /// how a signed install ended up reporting "restic is not in
+    /// …/HindsightAgent.app/Contents/Resources".
+    @Test("looks in the enclosing app bundle when nested inside one")
+    func findsBinariesInTheEnclosingBundle() throws {
+        let root = try makeBundle(
+            [
+                "Hindsight.app/Contents/Resources",
+                "Hindsight.app/Contents/Library/LaunchAgents/HindsightAgent.app/Contents/Resources",
+            ],
+            vendoredIn: "Hindsight.app/Contents/Resources"
+        )
+        let agent = root.appendingPathComponent(
+            "Hindsight.app/Contents/Library/LaunchAgents/HindsightAgent.app"
+        )
+        let found = AgentConfiguration.bundledBinaryDirectory(for: agent)
+        #expect(found?.path == root.appendingPathComponent("Hindsight.app/Contents/Resources").path)
+    }
+
+    @Test("prefers its own Resources when the binaries are there")
+    func prefersItsOwnResources() throws {
+        let root = try makeBundle(
+            ["Standalone.app/Contents/Resources"],
+            vendoredIn: "Standalone.app/Contents/Resources"
+        )
+        let bundle = root.appendingPathComponent("Standalone.app")
+        #expect(
+            AgentConfiguration.bundledBinaryDirectory(for: bundle)?.path
+                == bundle.appendingPathComponent("Contents/Resources").path
+        )
+    }
+
+    @Test("says nothing rather than pointing at a directory with no binaries in it")
+    func refusesAnEmptyDirectory() throws {
+        let root = try makeBundle(["Lonely.app/Contents/Resources"], vendoredIn: nil)
+        #expect(AgentConfiguration.bundledBinaryDirectory(for: root.appendingPathComponent("Lonely.app")) == nil)
+    }
+}

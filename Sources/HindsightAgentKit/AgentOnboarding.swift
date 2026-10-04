@@ -142,6 +142,16 @@ extension AgentCore {
         )
     }
 
+    /// Writes the managed ssh config for every server that exists.
+    ///
+    /// Called before anything that uses ssh, not only during onboarding: a
+    /// server added after the last write had no stanza, and every job for it
+    /// failed with "could not resolve hostname hs-…", which looks like a DNS
+    /// problem and is not one.
+    func refreshSSHConfiguration() {
+        try? SSHConfiguration(paths: sshPaths()).write(for: existingDestinations())
+    }
+
     func existingDestinations() -> [SSHDestination] {
         let paths = sshPaths()
         return ((try? catalog.servers()) ?? []).map { server in

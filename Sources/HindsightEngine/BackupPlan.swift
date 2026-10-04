@@ -8,7 +8,9 @@ public struct BackupPlan: Sendable {
     public var server: Server
     public var destination: SSHDestination
     public var profile: BackupProfile
-    /// The directory holding one repository subdirectory per server.
+    /// The directory holding one repository subdirectory per server. This is
+    /// what the local rest-server serves, and the server reaches its own
+    /// repository under it by name.
     public var repositoryRoot: URL
     public var repositoryPassword: Secret
     public var extraTags: [SnapshotTag]
@@ -20,6 +22,9 @@ public struct BackupPlan: Sendable {
     /// keyed by `DatabaseTarget.identifier`. A container supplies its own
     /// through its environment and needs no entry here.
     public var databaseCredentials: [String: Secret]
+    /// The repository's directory name inside the root. Defaults to the
+    /// server's id, which is how onboarding names it.
+    public var repositoryName: String
 
     public init(
         server: Server,
@@ -30,7 +35,8 @@ public struct BackupPlan: Sendable {
         extraTags: [SnapshotTag] = [],
         includeMetadata: Bool = true,
         includeDatabaseDumps: Bool = true,
-        databaseCredentials: [String: Secret] = [:]
+        databaseCredentials: [String: Secret] = [:],
+        repositoryName: String? = nil
     ) {
         self.server = server
         self.destination = destination
@@ -41,10 +47,17 @@ public struct BackupPlan: Sendable {
         self.includeMetadata = includeMetadata
         self.includeDatabaseDumps = includeDatabaseDumps
         self.databaseCredentials = databaseCredentials
+        self.repositoryName = repositoryName ?? server.id.value
     }
 
+    /// Where this server's repository is.
+    ///
+    /// Taken from the catalog rather than assumed, because the location is
+    /// chosen during onboarding: assuming it meant backups were written under
+    /// Application Support while prune, check and restore worked on the empty
+    /// directory the person had picked.
     public var repositoryURL: URL {
-        repositoryRoot.appendingPathComponent(server.id.value)
+        repositoryRoot.appendingPathComponent(repositoryName)
     }
 
     public var tags: [SnapshotTag] {
