@@ -160,3 +160,69 @@ extension TestEnvironment {
         return HostKey(host: "placeholder", keyType: fields[0], base64Key: fields[1], fingerprint: "")
     }
 }
+
+/// The local Coolify virtual machine, provisioned by
+/// `scripts/coolify-testenv.sh`.
+public enum CoolifyTestEnvironment {
+    public static var host: String? {
+        guard let value = ProcessInfo.processInfo.environment["HINDSIGHT_TEST_COOLIFY_HOST"],
+              !value.isEmpty
+        else { return nil }
+        return value
+    }
+
+    public static var token: String? {
+        guard let value = ProcessInfo.processInfo.environment["HINDSIGHT_TEST_COOLIFY_TOKEN"],
+              !value.isEmpty
+        else { return nil }
+        return value
+    }
+
+    /// Requires an explicit opt-in as well as a reachable VM.
+    ///
+    /// The virtual machine and the Docker environment share one hypervisor, and
+    /// running both test suites at once makes connections to the VM fail in
+    /// ways that look like Hindsight bugs. These tests are run deliberately,
+    /// with `make test-coolify`.
+    public static var isAvailable: Bool {
+        guard ProcessInfo.processInfo.environment["HINDSIGHT_TEST_COOLIFY"] == "1" else { return false }
+        guard let host, TestEnvironment.keyPath != nil else { return false }
+        // The same rule as everywhere else: a private address only.
+        return NetworkPolicy.isLocalTestAddress(host)
+    }
+
+    public static var hasToken: Bool { isAvailable && token != nil }
+
+    public static func destination(id: String = "coolify-vm") throws -> SSHDestination {
+        SSHDestination(
+            serverID: try ServerID(validating: id),
+            host: host ?? "127.0.0.1",
+            port: 22,
+            user: "root",
+            identityFile: TestEnvironment.keyPath ?? "",
+            privilege: .root
+        )
+    }
+
+    /// A client that trusts the VM's current host key, in a throwaway
+    /// configuration directory.
+    public static func prepareTrustedClient(id: String = "coolify-vm") async throws -> (SSHClient, SSHDestination) {
+        let base = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("hindsight-coolify-\(UUID().uuidString)")
+        let paths = SSHPaths(
+            configurationDirectory: base.appendingPathComponent("ssh"),
+            preferredControlDirectory: base.appendingPathComponent("cm")
+        )
+        try paths.prepare()
+        let client = SSHClient(paths: paths, policy: NetworkPolicy(mode: .localTestTargetsOnly))
+        let destination = try destination(id: id)
+        try SSHConfiguration(paths: paths).write(for: [destination])
+
+        let keys = try await client.scanHostKeys(host: destination.host, port: destination.port)
+        guard let preferred = keys.first else {
+            throw SSHError.noHostKeyOfSupportedType(host: destination.host)
+        }
+        try client.trust(preferred, for: destination)
+        return (client, destination)
+    }
+}

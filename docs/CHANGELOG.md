@@ -109,3 +109,24 @@
   in the producing half of the pipe is actually detected.
 - Consistency is stated honestly per engine: MySQL covers InnoDB only, and
   Redis is a point-in-time copy rather than a transaction.
+
+## M10 — Coolify, verified first
+
+- `docs/COOLIFY.md`: every path, label, container, API shape and schema detail
+  read off a live v4.3.23 install, with the corrections it forced.
+- Discovery from container labels (always available), from the API (which is
+  **off** on a fresh install), and the tree assembled the same way by both —
+  proven equal on the same install, resource for resource and volume for
+  volume.
+- Resource identity comes from the Docker Compose project label, because
+  Coolify writes no uuid label at all; the numeric ids it does write are not
+  stable across a restore.
+- Coolify's own containers are excluded: they carry `coolify.managed=true` but
+  no `coolify.type`.
+- An instance plan that captures `APP_KEY`, `acme.json`, the ssh keys, the ssl
+  certificate and the per-resource directories, excludes churning metrics, and
+  dumps `coolify-db` as its own user — each path checked against the live VM.
+- Proxy flavour is detected from the `coolify-proxy` image rather than assumed.
+- `scripts/coolify-testenv.sh` provisions the VM reproducibly; `make
+  test-coolify` runs the suite deliberately, since the VM and the Docker
+  environment contend when run together.
