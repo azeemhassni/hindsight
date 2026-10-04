@@ -149,3 +149,66 @@ struct SSHConfigurationTests {
         try #expect(String(contentsOf: file, encoding: .utf8).contains("Host hs-web-01"))
     }
 }
+
+@Suite("Configuration values with spaces")
+struct SSHConfigurationQuotingTests {
+    /// The default install path is `~/Library/Application Support/Hindsight`,
+    /// and an unquoted value stops at the first space: ssh then looks for
+    /// `/Users/you/Library/Application`, finds no known_hosts, and reports
+    /// every server's key as unknown. Found by installing the app rather than
+    /// by a test, because temporary directories have no spaces in them.
+    @Test("quotes a path containing a space")
+    func quotesPathsWithSpaces() throws {
+        let rendered = try SSHConfiguration.argument(
+            "/Users/me/Library/Application Support/Hindsight/ssh/known_hosts",
+            keyword: "UserKnownHostsFile"
+        )
+        #expect(rendered == "\"/Users/me/Library/Application Support/Hindsight/ssh/known_hosts\"")
+    }
+
+    @Test("leaves a plain value alone")
+    func leavesPlainValuesAlone() throws {
+        #expect(try SSHConfiguration.argument("yes", keyword: "StrictHostKeyChecking") == "yes")
+        #expect(try SSHConfiguration.argument("/dev/null", keyword: "GlobalKnownHostsFile") == "/dev/null")
+        #expect(try SSHConfiguration.argument("127.0.0.1", keyword: "HostName") == "127.0.0.1")
+    }
+
+    @Test("refuses a value that would break the file open")
+    func refusesUnusableValues() {
+        #expect(throws: SSHError.self) {
+            try SSHConfiguration.argument("/tmp/a\"b", keyword: "IdentityFile")
+        }
+        #expect(throws: SSHError.self) {
+            try SSHConfiguration.argument("/tmp/a\nHost evil", keyword: "IdentityFile")
+        }
+    }
+
+    @Test("a whole stanza quotes every path that needs it")
+    func stanzaQuotesPaths() throws {
+        let base = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("Application Support/Hindsight \(UUID().uuidString)")
+        let paths = SSHPaths(
+            configurationDirectory: base.appendingPathComponent("ssh"),
+            preferredControlDirectory: base.appendingPathComponent("cm")
+        )
+        try paths.prepare()
+        let destination = SSHDestination(
+            serverID: try ServerID(validating: "web-01"),
+            host: "127.0.0.1",
+            port: 2222,
+            user: "root",
+            identityFile: base.appendingPathComponent("my key").path,
+            privilege: .root
+        )
+
+        let stanza = try SSHConfiguration(paths: paths).stanza(for: destination)
+        let knownHosts = try #require(
+            stanza.split(separator: "\n").first { $0.contains("UserKnownHostsFile") }
+        )
+        #expect(knownHosts.contains("\"") , "a path with a space must be quoted: \(knownHosts)")
+        let identity = try #require(
+            stanza.split(separator: "\n").first { $0.contains("IdentityFile") }
+        )
+        #expect(identity.contains("\"my key\"") || identity.contains("my key\""))
+    }
+}

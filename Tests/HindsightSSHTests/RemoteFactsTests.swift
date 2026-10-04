@@ -180,7 +180,9 @@ struct SSHFailureTests {
         #expect("\(mapped)".contains("intercepted"))
     }
 
-    @Test("recognises host key verification failure")
+    /// ssh prints this line after a changed key *and* after an unrecorded one.
+    /// With nothing else to go on, Hindsight names both rather than guessing.
+    @Test("an unexplained verification failure names both possibilities")
     func recognisesVerificationFailure() {
         let mapped = SSHClient.interpret(
             .exitedWithFailure(
@@ -190,10 +192,12 @@ struct SSHFailureTests {
             ),
             host: "web-01"
         )
-        guard case SSHError.hostKeyChanged = mapped else {
-            Issue.record("expected hostKeyChanged, got \(mapped)")
+        guard case SSHError.hostKeyRejected = mapped else {
+            Issue.record("expected hostKeyRejected, got \(mapped)")
             return
         }
+        #expect("\(mapped)".contains("changed"))
+        #expect("\(mapped)".contains("none has been recorded"))
     }
 
     @Test("recognises a rejected key")

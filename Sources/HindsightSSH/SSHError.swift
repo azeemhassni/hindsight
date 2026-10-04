@@ -5,6 +5,13 @@ public enum SSHError: Error, Hashable, Sendable, CustomStringConvertible {
     case hostNotPermittedInThisBuild(String)
     case hostKeyChanged(host: String, details: String)
     case hostKeyNotTrusted(host: String)
+    /// ssh knows no key for this host yet. Different from a changed key in the
+    /// way that matters: nobody is being intercepted, nothing has been recorded.
+    case hostKeyUnknown(host: String, details: String)
+    /// ssh refused on the host key but said only that verification failed.
+    /// Both readings are named rather than guessing one of them.
+    case hostKeyRejected(host: String, details: String)
+    case unusableConfigurationValue(keyword: String, value: String)
     case hostKeyScanFailed(host: String, details: String)
     case noHostKeyOfSupportedType(host: String)
     case connectionFailed(host: String, details: String)
@@ -32,6 +39,23 @@ public enum SSHError: Error, Hashable, Sendable, CustomStringConvertible {
             """
         case let .hostKeyNotTrusted(host):
             "The host key for \(host) has not been confirmed yet."
+        case let .hostKeyUnknown(host, details):
+            """
+            No host key is recorded for \(host) yet, so Hindsight will not \
+            connect. Confirm the server's fingerprint first.
+            \(details)
+            """
+        case let .hostKeyRejected(host, details):
+            """
+            ssh refused to connect to \(host) because the host key did not \
+            verify. Either the key has changed, or none has been recorded yet.
+            \(details)
+            """
+        case let .unusableConfigurationValue(keyword, value):
+            """
+            \(keyword) cannot be written to an ssh configuration file: \
+            \(value) contains a quote or a newline.
+            """
         case let .hostKeyScanFailed(host, details):
             "Could not read a host key from \(host): \(details)"
         case let .noHostKeyOfSupportedType(host):

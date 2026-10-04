@@ -197,9 +197,20 @@ public struct SSHClient: Sendable {
         guard case let .exitedWithFailure(_, exit, standardError) = error else { return error }
 
         let text = standardError.lowercased()
-        if text.contains("remote host identification has changed")
-            || text.contains("host key verification failed") {
+        // A changed key and an unrecorded one both end in "host key
+        // verification failed", and telling someone their connection may be
+        // intercepted when nothing has been recorded yet is both wrong and
+        // alarming. The warning block is what distinguishes them.
+        if text.contains("remote host identification has changed") {
             return SSHError.hostKeyChanged(host: host, details: standardError)
+        }
+        if text.contains("host key is known") || text.contains("no matching host key") {
+            return SSHError.hostKeyUnknown(host: host, details: standardError)
+        }
+        // Only the bare line, with neither explanation above it: say both
+        // rather than picking the frightening one or the reassuring one.
+        if text.contains("host key verification failed") {
+            return SSHError.hostKeyRejected(host: host, details: standardError)
         }
         if text.contains("permission denied")
             || text.contains("too many authentication failures")

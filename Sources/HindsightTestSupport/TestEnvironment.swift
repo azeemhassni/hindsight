@@ -46,8 +46,12 @@ public enum TestEnvironment {
     /// A client wired to a throwaway configuration directory, so a test never
     /// reads or writes the real one.
     public static func makeClient() throws -> (SSHClient, SSHPaths) {
+        // The space is deliberate. The real install path contains one
+        // (`~/Library/Application Support/Hindsight`), and an ssh config that
+        // does not quote its values breaks there and nowhere else — which is
+        // how it reached a signed build unnoticed.
         let base = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("hindsight-itest-\(UUID().uuidString)")
+            .appendingPathComponent("hindsight itest \(UUID().uuidString)")
         let paths = SSHPaths(
             configurationDirectory: base.appendingPathComponent("ssh"),
             preferredControlDirectory: base.appendingPathComponent("cm")
@@ -132,7 +136,7 @@ extension TestEnvironment {
     /// The repository root for a test, under the system temporary directory.
     public static func temporaryRepositoryRoot() throws -> URL {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("hindsight-repos-\(UUID().uuidString)")
+            .appendingPathComponent("hindsight repos \(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
