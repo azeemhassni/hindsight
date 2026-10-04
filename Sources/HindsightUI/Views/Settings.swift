@@ -100,6 +100,7 @@ public struct ServerSettingsView: View {
                     Spacer()
                     Button("Reveal in Finder") { reveal(repositoryPath) }
                         .disabled(repositoryPath.isEmpty)
+                        .help("Show this server's repository in the Finder")
                 }
                 Text("""
                 Chosen when the server was added. Moving a repository means \
@@ -145,6 +146,7 @@ public struct ServerSettingsView: View {
                         }
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
+                        .help("Stop excluding \(pattern); it will be backed up from now on")
                     }
                 }
                 HStack {
@@ -157,6 +159,7 @@ public struct ServerSettingsView: View {
                         newExclude = ""
                     }
                     .disabled(newExclude.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .help("Leave paths matching this pattern out of every backup of this server")
                 }
             }
         }

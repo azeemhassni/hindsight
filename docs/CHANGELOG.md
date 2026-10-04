@@ -334,3 +334,17 @@ things — a changed key, a key that was never recorded, and a refusal with no
 evidence either way — rather than warning about interception when nothing had
 been recorded. And a Keychain refusal explains that the item belongs to a
 differently signed build instead of printing a status code.
+
+## Tooltips on every button
+
+Every button in the window now says what it does on hover, and the ones worth
+having most are on the disabled ones: `Continue` in the add-a-server sheet
+carries whatever is still missing, `Review changes` says "Choose a snapshot
+first", `Restore` says "Type the server's hostname to confirm", and `Save` in
+settings carries the reason it cannot be saved. Unavailable restore modes
+explain on hover why they are unavailable rather than only in the row.
+
+`scripts/tooltip-audit.swift` walks the running app's accessibility tree and
+reports any button without one, so this does not quietly rot. Menu items and
+alert buttons are not listed: macOS never shows a tooltip for either, and their
+titles are already visible.

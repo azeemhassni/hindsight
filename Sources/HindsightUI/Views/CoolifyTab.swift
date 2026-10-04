@@ -85,6 +85,7 @@ public struct CoolifyTreeView: View {
                     .frame(maxWidth: 420)
                 Button("Look again") { Task { await onRefresh() } }
                     .accessibilityLabel("Look for Coolify resources again")
+                    .help("Ask the server which Coolify resources it has")
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -176,12 +177,15 @@ struct CoolifyResourceRow: View {
                 .foregroundStyle(.secondary)
             Menu {
                 Button("Back up now", systemImage: "arrow.clockwise", action: onBackUp)
+                    .help("Back up this resource's volumes, configuration and database dump")
                 Button("Restore…", systemImage: "arrow.counterclockwise", action: onRestore)
+                    .help("Put this resource's data back from one of its own snapshots")
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .help("What can be done with \(resource.name)")
         }
         .contextMenu {
             Button("Back up now", systemImage: "arrow.clockwise", action: onBackUp)

@@ -216,14 +216,17 @@ public struct RestoreWizardView: View {
     private var footer: some View {
         HStack {
             Button("Back") { step = Step(rawValue: step.rawValue - 1) ?? .snapshot }
+                .help("Go back a step")
                 .disabled(step == .snapshot)
             Spacer()
             if step == .confirm {
                 Button("Restore") { onRestore(selectedMode) }
+                    .help("Write these files back to the server")
                     .buttonStyle(.borderedProminent)
                     .disabled(!RestoreSafety.confirmationMatches(typedHostname, hostname: serverHostname))
             } else {
                 Button("Continue") { step = Step(rawValue: step.rawValue + 1) ?? .confirm }
+                    .help("Go on to the next step; nothing is written yet")
                     .buttonStyle(.borderedProminent)
                     .disabled(!canContinue)
             }
@@ -296,12 +299,19 @@ struct ModeCard: View {
         }
         .buttonStyle(.plain)
         .disabled(!entry.isAvailable)
+        .help(summary)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             "\(entry.mode.title). \(entry.isAvailable ? "Available" : "Unavailable"). "
                 + entry.explanation + (entry.dataLossWarning.map { " Warning: " + $0 } ?? "")
         )
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+
+    /// Split out because type-checking it inline in the body timed out.
+    private var summary: String {
+        guard let warning = entry.dataLossWarning else { return entry.explanation }
+        return entry.explanation + " Warning: " + warning
     }
 
     private var icon: String {

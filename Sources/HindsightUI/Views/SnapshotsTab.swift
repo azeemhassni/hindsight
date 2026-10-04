@@ -62,6 +62,7 @@ public struct SnapshotsTab: View {
                             Button("Restore all of this…", systemImage: "arrow.counterclockwise") {
                                 onRestore(snapshot, nil)
                             }
+                            .help("Restore everything this snapshot holds, not one path out of it")
                         }
                 }
                 .listStyle(.inset)

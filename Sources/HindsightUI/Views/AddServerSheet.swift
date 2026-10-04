@@ -46,6 +46,11 @@ public struct AddServerSheet: View {
                         onClose()
                     }
                 }
+                .help(
+                    controller.closingLosesRecoveryKit
+                        ? "Asks first: this server's password is not saved anywhere else yet"
+                        : "Close without adding a server"
+                )
             }
         }
         .alert("Save the recovery kit first", isPresented: $confirmingClose) {

@@ -116,6 +116,7 @@ public struct RestoreSheetView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .help("Restore the server as it was at \(formatted(snapshot.time))")
             }
         }
     }
@@ -158,6 +159,9 @@ public struct RestoreSheetView: View {
                 .accessibilityLabel(
                     "\(entry.title). \(entry.available ? "Available" : "Unavailable"). \(entry.explanation)"
                 )
+                // The same words the row shows, so hovering an unavailable
+                // mode explains why it cannot be chosen.
+                .help(entry.explanation)
             }
         }
     }
@@ -214,26 +218,46 @@ public struct RestoreSheetView: View {
         }
     }
 
+    /// Tooltips that say what is missing while a button is disabled, which is
+    /// when someone is most likely to hover over it.
+    private var reviewHelp: String {
+        flow.canReview
+            ? "Take a snapshot of what is there now, then show exactly what would change"
+            : "Choose a snapshot first"
+    }
+
+    private var restoreHelp: String {
+        flow.canConfirm
+            ? "Write these files back to \(flow.serverHostname); the safety snapshot can undo it"
+            : "Type the server's hostname to confirm"
+    }
+
     private var footer: some View {
         HStack {
             Button("Cancel", action: onClose)
+                .help("Close without changing anything on the server")
             Spacer()
             switch flow.stage {
             case .choosing:
                 Button("Review changes") { Task { await flow.prepare() } }
                     .buttonStyle(.borderedProminent)
                     .disabled(!flow.canReview)
+                    .help(reviewHelp)
             case .reviewing:
                 Button("Continue") { flow.proceedToConfirmation() }
                     .buttonStyle(.borderedProminent)
+                    .help("Go on to the confirmation step; nothing is written yet")
             case .confirming:
                 Button("Restore") { Task { await flow.run() } }
                     .buttonStyle(.borderedProminent)
                     .disabled(!flow.canConfirm)
+                    .help(restoreHelp)
             case .preparing, .running:
                 ProgressView().controlSize(.small)
             case .finished, .failed:
-                Button("Done", action: onClose).buttonStyle(.borderedProminent)
+                Button("Done", action: onClose)
+                    .buttonStyle(.borderedProminent)
+                    .help("Close this window")
             }
         }
         .padding(20)

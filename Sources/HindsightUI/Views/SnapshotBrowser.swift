@@ -60,8 +60,10 @@ public struct SnapshotBrowserView: View {
                                 Button("Restore this…", systemImage: "arrow.counterclockwise") {
                                     onRestore(node)
                                 }
+                                .help("Put this back on the server, from this snapshot")
                                 if node.isPreviewable {
                                     Button("Quick Look", systemImage: "eye") { onPreview(node) }
+                                        .help("Look at this file without restoring it")
                                 }
                             }
                     }
@@ -90,6 +92,7 @@ public struct SnapshotBrowserView: View {
                 if let selection { onRestore(selection) }
             }
             .disabled(selection == nil)
+            .help("Put the selected file or folder back on the server")
             Button("Quick Look", systemImage: "eye") {
                 if let selection { onPreview(selection) }
             }

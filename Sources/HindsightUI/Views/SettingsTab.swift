@@ -76,6 +76,9 @@ struct SettingsForm: View {
             Button("Save") { Task { await flow.save() } }
                 .buttonStyle(.borderedProminent)
                 .disabled(!flow.hasChanges || flow.blockingReason != nil || flow.isSaving)
+                // The tooltip carries the reason when the button is disabled,
+                // because a disabled button with no explanation is a dead end.
+                .help(flow.blockingReason ?? "Send these changes to the agent; untouched settings are left alone")
         }
         .padding(12)
     }

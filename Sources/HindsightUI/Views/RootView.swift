@@ -154,6 +154,7 @@ public struct RootView: View {
                 }
                 .keyboardShortcut("b", modifiers: [.command])
                 .disabled(model.runningJob(forServer: server.id) != nil)
+                .help("Back this server up now, as well as on its schedule")
             }
             ToolbarItem {
                 Button("Restore…", systemImage: "arrow.counterclockwise") {
@@ -161,21 +162,26 @@ public struct RootView: View {
                 }
                 .keyboardShortcut("r", modifiers: [.command])
                 .disabled(snapshots(server.id).isEmpty)
+                .help("Choose a snapshot and put its files back on the server")
             }
             ToolbarItem {
                 Menu {
                     Button("Check integrity now", systemImage: "checkmark.seal") {
                         Task { await model.checkIntegrity(serverID: server.id) }
                     }
+                    .help("Read the repository and check it against its own checksums")
                     Button("Forget and prune now", systemImage: "scissors") {
                         Task { await model.runMaintenance(serverID: server.id) }
                     }
+                    .help("Apply the retention policy and delete the snapshots it no longer keeps")
                     Button("Save recovery kit…", systemImage: "square.and.arrow.down") {
                         saveRecoveryKit(forServer: server.id)
                     }
+                    .help("Save this server's repository password somewhere other than this Mac")
                 } label: {
                     Label("More", systemImage: "ellipsis.circle")
                 }
+                .help("Integrity checks, pruning, and the recovery kit")
             }
         }
     }
@@ -235,6 +241,7 @@ public struct RootView: View {
                 Text("Choose a server, or add one.")
             } actions: {
                 Button("Add a server…") { startOnboarding() }
+                    .help("Connect to a server over ssh and start backing it up")
             }
         }
     }
@@ -390,6 +397,7 @@ struct RecoveryKitBanner: View {
             Spacer(minLength: 8)
             Button("Save recovery kit…", action: onExport)
                 .accessibilityLabel("Save the recovery kit for \(serverName)")
+                .help("Without it, these backups cannot be read if this Mac is lost")
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -415,6 +423,7 @@ struct ApprovalBanner: View {
             .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
             Button("Open Login Items", action: onOpenSettings)
+                .help("Open Login Items in System Settings, where the agent is allowed to run")
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)

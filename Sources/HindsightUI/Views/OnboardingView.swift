@@ -150,6 +150,7 @@ public struct OnboardingView: View {
                 // with no way forward and no way to try again.
                 if state.privilegeMode == nil {
                     Button("Check again") { Task { await onCheckPrivileges() } }
+                        .help("Try connecting to the server again")
                 }
             }
 
@@ -173,6 +174,7 @@ public struct OnboardingView: View {
                         .foregroundStyle(state.repositoryPath == nil ? .secondary : .primary)
                     Spacer()
                     Button("Choose…", action: onChooseRepository)
+                        .help("Choose the folder that will hold this server's backups")
                 }
                 Text("""
                 External disks are listed first. Whatever you choose needs room \
@@ -213,6 +215,7 @@ public struct OnboardingView: View {
                     Task { await onExportRecoveryKit() }
                 }
                 .buttonStyle(.borderedProminent)
+                .help("Write the repository password to a file you keep somewhere else")
 
                 if state.recoveryKitExported {
                     Label("Saved.", systemImage: "checkmark.circle").foregroundStyle(.green)
@@ -253,6 +256,7 @@ public struct OnboardingView: View {
         HStack {
             Button("Back") { state.goBack() }
                 .disabled(state.step == .connectionDetails || isBusy)
+                .help("Go back a step")
             if let errorText {
                 Label(errorText, systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.red)
@@ -267,12 +271,17 @@ public struct OnboardingView: View {
             }
             Spacer()
             if state.step == .done {
-                Button("Finish", action: onFinish).buttonStyle(.borderedProminent)
+                Button("Finish", action: onFinish)
+                    .buttonStyle(.borderedProminent)
+                    .help("Close this; the server is set up and will be backed up on its schedule")
             } else {
                 if isBusy { ProgressView().controlSize(.small) }
                 Button("Continue") { Task { await onContinue() } }
                     .buttonStyle(.borderedProminent)
                     .disabled(!state.canAdvance || isBusy)
+                    // What is missing, when something is: a disabled Continue
+                    // with no explanation is the worst moment in a wizard.
+                    .help(state.blockingReason ?? "Go on to the next step")
             }
         }
         .padding(20)
