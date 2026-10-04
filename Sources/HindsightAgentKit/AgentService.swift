@@ -18,8 +18,10 @@ public actor AgentCore {
     let catalog: Catalog
     let secrets: any SecretStore
     let version: String
-    private var queue: JobQueue!
-    private var scheduler: Scheduler!
+    // Built in `init` rather than in `start`, so a request that arrives before
+    // the agent has started queues or fails rather than trapping on nil.
+    let queue: JobQueue
+    private let scheduler: Scheduler
     private var running: [String: RunningJob] = [:]
     private var observers: [UUID: @Sendable (AgentEvent) -> Void] = [:]
     /// Restores waiting to run, keyed by job. The command is held here rather
@@ -39,24 +41,47 @@ public actor AgentCore {
         self.catalog = catalog
         self.secrets = secrets
         self.version = version
+
+        let runner = QueueRunnerBox()
+        queue = JobQueue { job in try await runner.run(job) }
+        let scheduleRunner = ScheduleRunnerBox()
+        scheduler = Scheduler(power: SystemPowerSource()) { entry in
+            await scheduleRunner.enqueue(entry)
+        }
+        runner.core = self
+        scheduleRunner.core = self
     }
 
     public func start() async {
-        queue = JobQueue { [weak self] job in
-            try await self?.run(job)
-        }
+        reconcileInterruptedJobs()
         await queue.observe { [weak self] event in
             Task { await self?.handle(queueEvent: event) }
-        }
-
-        scheduler = Scheduler(power: SystemPowerSource()) { [weak self] entry in
-            await self?.enqueueBackup(for: entry)
         }
         await reloadSchedules()
         await scheduler.start()
 
         notifier.requestAuthorizationIfNeeded()
         startMaintenanceSweep()
+    }
+
+    /// Closes off jobs that were running when the agent last stopped.
+    ///
+    /// Nothing is running them any more, so leaving them `running` would show a
+    /// backup in progress for ever — and the interface would be right to
+    /// believe the catalog.
+    private func reconcileInterruptedJobs() {
+        guard let active = try? catalog.activeJobs() else { return }
+        for var job in active {
+            job.state = .failed
+            job.finishedAt = Date()
+            job.errorText = "Interrupted: the agent stopped while this was running."
+            try? catalog.save(job)
+            try? catalog.append(
+                "Interrupted: the agent stopped while this was running.",
+                level: .warning,
+                to: JobID(unchecked: job.id)
+            )
+        }
     }
 
     /// Looks for maintenance that is due, on its own slow timer.
@@ -98,14 +123,14 @@ public actor AgentCore {
     }
 
     public func handleWake() async {
-        await scheduler?.wakeUp()
+        await scheduler.wakeUp()
     }
 
     public func stop() async {
         maintenanceSweep?.cancel()
         maintenanceSweep = nil
-        await scheduler?.stop()
-        await queue?.cancelAll()
+        await scheduler.stop()
+        await queue.cancelAll()
     }
 
     public func observe(_ observer: @escaping @Sendable (AgentEvent) -> Void) -> UUID {
@@ -214,9 +239,28 @@ public actor AgentCore {
                 return .failed(message: "\(error)")
             }
 
+        case let .discoverCoolify(serverID):
+            return await discoverCoolify(serverID: serverID)
+
+        case let .backUpResource(serverID, resourceUUID):
+            return await enqueueResourceBackup(serverID: serverID, resourceUUID: resourceUUID)
+
+        case let .jobHistory(serverID, limit):
+            return jobHistory(serverID: serverID, limit: limit)
+
+        case let .jobLog(jobID):
+            return jobLog(jobID: jobID)
+
+        case let .serverSettings(serverID):
+            do {
+                return .settings(try await settings(forServer: serverID))
+            } catch {
+                return .failed(message: "\(error)")
+            }
+
         case let .updateServerSettings(update):
             do {
-                try apply(update)
+                try await apply(update)
                 await reloadSchedules()
                 return .done
             } catch {
@@ -236,7 +280,7 @@ public actor AgentCore {
     }
 
     public func status() async -> AgentStatus {
-        let statuses = await scheduler?.statuses() ?? []
+        let statuses = await scheduler.statuses()
         let byServer = Dictionary(
             statuses.map { ($0.entry.serverID.value, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -293,6 +337,14 @@ public actor AgentCore {
             }
         }
         await scheduler.replaceEntries(entries)
+    }
+
+    func enqueueScheduled(_ entry: ScheduledEntry) async {
+        await enqueueBackup(for: entry)
+    }
+
+    func runQueued(_ job: QueuedJob) async throws {
+        try await run(job)
     }
 
     private func enqueueBackup(for entry: ScheduledEntry) async {
@@ -361,6 +413,29 @@ public actor AgentCore {
             try catalog.save(record)
             return
 
+        case .backup where job.resourceUUID != nil:
+            do {
+                try await runResourceBackup(
+                    job,
+                    resourceUUID: job.resourceUUID!,
+                    server: server,
+                    repository: repository
+                )
+                record.state = .succeeded
+            } catch {
+                record.state = .failed
+                record.errorText = "\(error)"
+                try? catalog.append("\(error)", level: .error, to: job.id)
+                record.finishedAt = Date()
+                try? catalog.save(record)
+                notifier.backupFailed(server: server.name, reason: "\(error)")
+                throw error
+            }
+            record.finishedAt = Date()
+            try catalog.save(record)
+            try? catalog.trimEvents(for: job.id, keeping: 2000)
+            return
+
         case .backup, .databaseDump, .metadata, .copy:
             break
         }
@@ -390,7 +465,8 @@ public actor AgentCore {
             includePaths: BackupProfile.fullServer.includePaths,
             excludePatterns: BackupProfile.fullServer.excludePatterns + extraExcludes,
             oneFileSystem: BackupProfile.fullServer.oneFileSystem,
-            excludeCaches: BackupProfile.fullServer.excludeCaches
+            excludeCaches: BackupProfile.fullServer.excludeCaches,
+            bandwidthLimitKiBPerSecond: repository.bandwidthLimitKiB
         )
 
         let plan = BackupPlan(
@@ -398,7 +474,7 @@ public actor AgentCore {
             destination: SSHDestination(server: server, identityFile: identityFile),
             profile: profile,
             repositoryRoot: configuration.repositoryRoot,
-            repositoryPassword: try secrets.readOrCreate(.repositoryPassword(server.id))
+            repositoryPassword: try await secretOrCreate(.repositoryPassword(server.id))
         )
 
         do {
@@ -421,7 +497,7 @@ public actor AgentCore {
         // Reconcile the catalog with what the repository now holds, so a prune
         // somewhere else cannot leave the timeline showing snapshots that are
         // gone.
-        if let local = try? localClient(for: server, repository: repository),
+        if let local = try? await localClient(for: server, repository: repository),
            let listed = try? await local.snapshots() {
             try? catalog.record(
                 listed.map { $0.toSnapshot() },
@@ -514,10 +590,31 @@ public actor AgentCore {
     }
 }
 
+/// Breaks the chicken-and-egg between the core and the queue it owns: the
+/// queue's work closure needs the core, which does not exist until the queue
+/// has been created.
+final class QueueRunnerBox: @unchecked Sendable {
+    weak var core: AgentCore?
+
+    func run(_ job: QueuedJob) async throws {
+        try await core?.runQueued(job)
+    }
+}
+
+final class ScheduleRunnerBox: @unchecked Sendable {
+    weak var core: AgentCore?
+
+    func enqueue(_ entry: ScheduledEntry) async {
+        await core?.enqueueScheduled(entry)
+    }
+}
+
 public enum AgentError: Error, CustomStringConvertible {
     case unknownServer(String)
     case noRepository(String)
     case noRestoreCommand(String)
+    case unknownCoolifyResource(String)
+    case resourceBackupFailed(String, String)
 
     public var description: String {
         switch self {
@@ -525,6 +622,61 @@ public enum AgentError: Error, CustomStringConvertible {
         case let .noRepository(id): "Server \(id) has no repository yet."
         case let .noRestoreCommand(id):
             "Job \(id) has no restore attached to it, so nothing was changed."
+        case let .unknownCoolifyResource(uuid):
+            "The server no longer has a Coolify resource \(uuid)."
+        case let .resourceBackupFailed(uuid, reason):
+            "Could not back up \(uuid): \(reason)"
         }
+    }
+}
+
+/// Keychain access, kept off the actor.
+///
+/// `SecItemCopyMatching` is a synchronous call into securityd, and it can block
+/// for a long time — a locked keychain, an access prompt, a wedged securityd.
+/// Called directly on `AgentCore` it blocks the actor, which means no status,
+/// no new jobs and no answer to anything until it returns: the agent looks dead
+/// while being perfectly healthy underneath. Observed, not theorised.
+extension AgentCore {
+    func secret(_ key: SecretKey) async throws -> Secret {
+        let store = secrets
+        return try await Task.detached(priority: .userInitiated) {
+            try store.read(key)
+        }.value
+    }
+
+    func secretOrCreate(_ key: SecretKey) async throws -> Secret {
+        let store = secrets
+        return try await Task.detached(priority: .userInitiated) {
+            try store.readOrCreate(key)
+        }.value
+    }
+
+    func optionalSecret(_ key: SecretKey) async -> Secret? {
+        let store = secrets
+        return await Task.detached(priority: .userInitiated) {
+            try? store.read(key)
+        }.value
+    }
+
+    func writeSecret(_ value: String, for key: SecretKey) async throws {
+        let store = secrets
+        try await Task.detached(priority: .userInitiated) {
+            try store.write(value, for: key)
+        }.value
+    }
+
+    func deleteSecret(_ key: SecretKey) async throws {
+        let store = secrets
+        try await Task.detached(priority: .userInitiated) {
+            try store.delete(key)
+        }.value
+    }
+
+    func hasSecret(_ key: SecretKey) async -> Bool {
+        let store = secrets
+        return await Task.detached(priority: .userInitiated) {
+            store.contains(key)
+        }.value
     }
 }

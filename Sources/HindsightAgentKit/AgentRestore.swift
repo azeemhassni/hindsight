@@ -34,12 +34,12 @@ extension AgentCore {
         }
     }
 
-    func localClient(for server: Server, repository: RepositoryRecord) throws -> ResticClient {
+    func localClient(for server: Server, repository: RepositoryRecord) async throws -> ResticClient {
         ResticClient(
             executable: try BinaryStore(directory: configuration.binaryDirectory)
                 .verifiedURL(for: try PinnedBinaries.hostRestic),
             location: .local(URL(fileURLWithPath: repository.path)),
-            password: try secrets.readOrCreate(.repositoryPassword(server.id))
+            password: try await secretOrCreate(.repositoryPassword(server.id))
         )
     }
 
@@ -61,7 +61,7 @@ extension AgentCore {
             identityFile: identityFile(for: server, paths: paths)
         )
         let store = BinaryStore(directory: configuration.binaryDirectory)
-        let password = try secrets.readOrCreate(.repositoryPassword(server.id))
+        let password = try await secretOrCreate(.repositoryPassword(server.id))
 
         let facts = try await client.probeFacts(on: destination)
         let binary = try PinnedBinaries.restic(for: facts.platform.architecture)
@@ -245,7 +245,7 @@ extension AgentCore {
     // MARK: Maintenance
 
     func runMaintenance(_ job: QueuedJob, server: Server, repository: RepositoryRecord) async throws {
-        let local = try localClient(for: server, repository: repository)
+        let local = try await localClient(for: server, repository: repository)
         let engine = MaintenanceEngine()
         var updated = repository
 

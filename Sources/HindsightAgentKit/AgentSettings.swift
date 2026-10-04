@@ -10,7 +10,7 @@ import HindsightProtocol
 /// because a Coolify token belongs in the Keychain rather than in a database
 /// the app could read from disk.
 extension AgentCore {
-    func apply(_ update: ServerSettingsUpdate) throws {
+    func apply(_ update: ServerSettingsUpdate) async throws {
         let id = try ServerID(validating: update.serverID)
         guard try catalog.server(id) != nil else {
             throw AgentError.unknownServer(update.serverID)
@@ -20,14 +20,15 @@ extension AgentCore {
         try applyRetention(update, serverID: id)
         try applyPathRules(update, serverID: id)
         try applyRotation(update, serverID: id)
+        try applyBandwidthLimit(update, serverID: id)
 
         if let token = update.coolifyToken {
             // Never the catalog: a token is a credential, and the catalog is a
             // plain file the app can read.
             if token.isEmpty {
-                try secrets.delete(.coolifyToken(id))
+                try await deleteSecret(.coolifyToken(id))
             } else {
-                try secrets.write(token, for: .coolifyToken(id))
+                try await writeSecret(token, for: .coolifyToken(id))
             }
         }
     }
@@ -98,6 +99,16 @@ extension AgentCore {
         try catalog.replaceUserExcludes(patterns, forServer: serverID)
     }
 
+    private func applyBandwidthLimit(_ update: ServerSettingsUpdate, serverID: ServerID) throws {
+        guard let limit = update.bandwidthLimitKiB,
+              var repository = try catalog.repository(forServer: serverID)
+        else { return }
+        // Zero would mean "no transfer at all" to restic; the settings view
+        // refuses it, and this refuses it again rather than trusting the caller.
+        repository.bandwidthLimitKiB = limit > 0 ? limit : nil
+        try catalog.save(repository)
+    }
+
     private func applyRotation(_ update: ServerSettingsUpdate, serverID: ServerID) throws {
         guard let divisor = update.checkRotationDivisor,
               var repository = try catalog.repository(forServer: serverID)
@@ -112,5 +123,37 @@ extension AgentCore {
     /// The exclude patterns a person added, on top of the profile's defaults.
     func userExcludes(forServer id: ServerID) throws -> [String] {
         try catalog.userExcludes(forServer: id)
+    }
+}
+
+extension AgentCore {
+    /// Reads settings back out, so the settings view starts from what is
+    /// actually in force rather than from defaults that would overwrite it.
+    func settings(forServer serverID: String) async throws -> ServerSettingsReport {
+        let id = try ServerID(validating: serverID)
+        guard try catalog.server(id) != nil else {
+            throw AgentError.unknownServer(serverID)
+        }
+
+        let schedule = try catalog.schedules(forServer: id).first { $0.resourceUUID == nil }
+        let resolved = try schedule?.toSchedule()
+        let retention = try catalog.retentionPolicy(forServer: id, scope: .filesystem)
+        let repository = try catalog.repository(forServer: id)
+
+        return ServerSettingsReport(
+            serverID: serverID,
+            cadence: resolved.map { try? JSONEncoder().encode($0.cadence) } ?? nil,
+            onlyOnACPower: resolved?.onlyOnACPower ?? false,
+            keepWithinHours: retention.keepWithinHours,
+            keepDaily: retention.keepDaily,
+            keepWeekly: retention.keepWeekly,
+            keepMonthly: retention.keepMonthly,
+            keepYearly: retention.keepYearly,
+            excludePatterns: (try? catalog.userExcludes(forServer: id)) ?? [],
+            bandwidthLimitKiB: repository?.bandwidthLimitKiB,
+            checkRotationDivisor: repository?.checkRotationDivisor ?? 1,
+            repositoryPath: repository?.path ?? "",
+            coolifyTokenIsSet: await hasSecret(.coolifyToken(id))
+        )
     }
 }

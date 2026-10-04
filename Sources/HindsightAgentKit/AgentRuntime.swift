@@ -43,8 +43,13 @@ public enum AgentRuntime {
 
         SleepWakeObserver.start(core: core)
 
-        // The agent is long-lived by design; it exits only when launchd says so.
-        await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in }
+        // The agent is long-lived by design; it exits only when launchd says
+        // so. A sleeping loop rather than a continuation nobody resumes: a
+        // continuation that is never resumed is reported as a leak, and the
+        // task it parks can be freed with the process still expected to serve.
+        while true {
+            try? await Task.sleep(for: .seconds(3600))
+        }
     }
 }
 

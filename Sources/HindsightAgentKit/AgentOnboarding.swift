@@ -92,7 +92,7 @@ extension AgentCore {
         // Generated here rather than at first backup: the recovery kit has to
         // be exportable before anything has run, and a password that appears
         // later is a password somebody can miss.
-        _ = try secrets.readOrCreate(.repositoryPassword(id))
+        _ = try await secretOrCreate(.repositoryPassword(id))
 
         try catalog.save(
             ScheduleRecord(

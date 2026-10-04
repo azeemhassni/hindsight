@@ -12,7 +12,12 @@ public struct AgentConfiguration: Codable, Sendable {
     public var binaryDirectory: URL
 
     public static var defaultConfigurationURL: URL {
-        applicationSupport.appendingPathComponent("Hindsight/agent.json")
+        // Overridable so a development agent can be run against a scratch
+        // catalog and repository root without touching the installed one.
+        if let override = ProcessInfo.processInfo.environment["HINDSIGHT_AGENT_CONFIG"] {
+            return URL(fileURLWithPath: override)
+        }
+        return applicationSupport.appendingPathComponent("Hindsight/agent.json")
     }
 
     public static var applicationSupport: URL {
