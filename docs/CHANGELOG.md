@@ -351,13 +351,31 @@ titles are already visible.
 
 ## The window resizes like a window
 
-It did not. The scene took its size from the content, which made the window
-2151 points tall — taller than the screen — and refused every vertical resize:
-asking for 200 points or 3000 both left it at 2151. `windowResizability` is now
-`.contentMinSize`, so there is a floor and no ceiling, and the root view
-declares that floor itself (720 × 420). The panes inside were adjusted to fit
-within it, so the smallest window squeezes nothing.
+It did not: it opened 2151 points tall on a 1072-point screen and refused every
+vertical resize — asking for 200 points or 3000 both left it at 2151.
 
-Measured rather than eyeballed, through the accessibility API: the window now
-shrinks to 720 × 472 on every tab and grows to fill the screen, and opens at
-1040 × 700.
+The cause took measuring to find, and it was not where it looked. Every banner
+and caption used `.fixedSize(horizontal: false, vertical: true)`, which means
+"never truncate this text vertically". When SwiftUI works out a view's
+*minimum* size it proposes a near-zero width, and at that width those strings
+wrapped into a column one word wide — about two thousand points tall. The
+window scene turned that into the window's minimum height, so the window was
+born taller than the screen and could never shrink.
+
+Each of those texts now has a line limit, and the window:
+
+- opens at 1040 × 700,
+- shrinks to 647 × 286 and grows to fill the screen,
+- lays its content out at exactly the window's size.
+
+`windowResizability` is `.contentMinSize`, so there is a floor and no ceiling.
+`WindowFloor` sets the minimum and clamps to the screen in AppKit rather than
+with a SwiftUI frame — a frame on the `NavigationSplitView` breaks its layout
+outright, leaving a toolbar above an empty rectangle. `WindowGeometryParsing`
+throws away remembered geometry that no longer fits the screen, because macOS
+restores a split view's saved frames and a window saved at 2109 points would
+otherwise open that way for ever.
+
+Two tabs — Snapshots and Logs — still ask for about 1000 points of width before
+they will shrink further, because of what their split panes hold; the window
+grows to meet them when you switch to one while very small.

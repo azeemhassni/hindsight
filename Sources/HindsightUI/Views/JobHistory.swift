@@ -77,7 +77,7 @@ public struct JobHistoryView: View {
                     Text("Errors").tag(String?.some("error"))
                 }
                 .pickerStyle(.segmented)
-                .frame(maxWidth: 260)
+                .frame(minWidth: 150, idealWidth: 260, maxWidth: 260)
                 Spacer()
                 Button("Copy", systemImage: "doc.on.doc") { copyLog() }
                     .disabled(visible.isEmpty)
@@ -110,6 +110,7 @@ public struct JobHistoryView: View {
                     .foregroundStyle(.red)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(6)
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }

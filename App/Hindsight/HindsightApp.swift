@@ -34,6 +34,12 @@ struct HindsightApp: App {
     @State private var sizes = RepositorySizeStore()
     private let recoveryKits = DefaultsRecoveryKitRegistry()
 
+    init() {
+        // Before the scene exists, because the window is built from what macOS
+        // remembered.
+        WindowGeometry.discardIfLargerThanScreen()
+    }
+
     var body: some Scene {
         Window("Hindsight", id: "main") {
             RootView(
@@ -125,6 +131,13 @@ struct HindsightApp: App {
                 model.connection = .unavailable(reason: explanation)
             }
         }
+
+        // After the first layout, so the window exists to be constrained.
+        WindowFloor.applyWhenSettled(
+            minWidth: 720,
+            minHeight: 420,
+            openingSize: NSSize(width: 1040, height: 700)
+        )
 
         model.send = { [connection] request in await connection.send(request) }
         connection.onEvent = { [model] event in model.apply(event) }

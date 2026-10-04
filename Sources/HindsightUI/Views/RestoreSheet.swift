@@ -46,6 +46,7 @@ public struct RestoreSheetView: View {
             Text(flow.statusText)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(6)
         }
         .padding(20)
         .accessibilityElement(children: .combine)
@@ -76,6 +77,7 @@ public struct RestoreSheetView: View {
                     """)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(6)
                 }
             }
         case let .failed(message):
@@ -83,6 +85,7 @@ public struct RestoreSheetView: View {
                 .foregroundStyle(.red)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(6)
         }
     }
 
@@ -150,6 +153,7 @@ public struct RestoreSheetView: View {
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
+                                .lineLimit(6)
                         }
                         Spacer(minLength: 0)
                     }
@@ -185,6 +189,7 @@ public struct RestoreSheetView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(6)
 
                 GroupBox {
                     VStack(alignment: .leading, spacing: 2) {

@@ -173,3 +173,54 @@ struct SnapshotTreeTests {
         #expect(SnapshotDiffEntry.Change.metadata.label.contains("ownership"))
     }
 }
+
+@Suite("Remembered window geometry")
+struct WindowGeometryTests {
+    /// The numbers macOS writes for a split view: "x, y, width, height, NO, NO".
+    @Test("reads the height out of a saved split-view frame")
+    func readsSplitViewHeight() {
+        #expect(
+            WindowGeometryParsing.heightOfSplitViewFrame(
+                "0.000000, 0.000000, 260.000000, 2109.000000, NO, NO"
+            ) == 2109
+        )
+        #expect(WindowGeometryParsing.heightOfSplitViewFrame("nonsense") == nil)
+    }
+
+    /// And for a window: "x y width height screenX screenY screenWidth screenHeight".
+    @Test("reads the height out of a saved window frame")
+    func readsWindowHeight() {
+        #expect(
+            WindowGeometryParsing.heightOfWindowFrame("468 1692 960 624 -311 1169 2560 1410 ") == 624
+        )
+        #expect(WindowGeometryParsing.heightOfWindowFrame("") == nil)
+    }
+
+    /// A window taller than the screen opens mostly below the bottom edge, and
+    /// every launch saves the oversized value back. Anything that no longer
+    /// fits is dropped; a size that fits is the person's and is left alone.
+    @Test("drops remembered geometry that no longer fits the screen")
+    func dropsOversizedGeometry() {
+        let defaults = UserDefaults(suiteName: "hindsight.geometry.\(UUID().uuidString)")!
+        defaults.set(
+            ["0.0, 0.0, 260.0, 2109.0, NO, NO", "260.0, 0.0, 623.0, 2109.0, NO, NO"],
+            forKey: WindowGeometryParsing.splitViewKey
+        )
+        defaults.set("468 1692 960 2109 -311 1169 2560 1410 ", forKey: WindowGeometryParsing.windowKey)
+
+        WindowGeometryParsing.discardIfLargerThanScreen(defaults: defaults, screenHeight: 1072)
+        #expect(defaults.array(forKey: WindowGeometryParsing.splitViewKey) == nil)
+        #expect(defaults.string(forKey: WindowGeometryParsing.windowKey) == nil)
+    }
+
+    @Test("keeps remembered geometry that still fits")
+    func keepsGeometryThatFits() {
+        let defaults = UserDefaults(suiteName: "hindsight.geometry.\(UUID().uuidString)")!
+        defaults.set(["0.0, 0.0, 260.0, 700.0, NO, NO"], forKey: WindowGeometryParsing.splitViewKey)
+        defaults.set("468 100 960 624 0 0 1800 1169 ", forKey: WindowGeometryParsing.windowKey)
+
+        WindowGeometryParsing.discardIfLargerThanScreen(defaults: defaults, screenHeight: 1072)
+        #expect(defaults.array(forKey: WindowGeometryParsing.splitViewKey) != nil)
+        #expect(defaults.string(forKey: WindowGeometryParsing.windowKey) != nil)
+    }
+}

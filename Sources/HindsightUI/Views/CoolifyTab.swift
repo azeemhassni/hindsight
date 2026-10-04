@@ -99,6 +99,7 @@ public struct CoolifyTreeView: View {
             Text(bannerText)
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(6)
             Spacer(minLength: 8)
             if let version = report?.coolifyVersion {
                 Text("Coolify \(version)")

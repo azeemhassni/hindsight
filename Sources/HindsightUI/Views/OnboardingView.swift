@@ -67,6 +67,7 @@ public struct OnboardingView: View {
             Text(state.step.explanation)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(6)
         }
         .padding(20)
         .accessibilityElement(children: .combine)
@@ -210,6 +211,7 @@ public struct OnboardingView: View {
                 )
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(6)
 
                 Button("Save the recovery kit…", systemImage: "square.and.arrow.down") {
                     Task { await onExportRecoveryKit() }
@@ -263,11 +265,13 @@ public struct OnboardingView: View {
                     .font(.callout)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(6)
             } else if let reason = state.blockingReason {
                 Text(reason)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(6)
             }
             Spacer()
             if state.step == .done {

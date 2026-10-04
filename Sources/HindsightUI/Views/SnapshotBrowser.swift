@@ -84,10 +84,12 @@ public struct SnapshotBrowserView: View {
         HStack(spacing: 8) {
             Text(title)
                 .font(.headline)
+                .lineLimit(1)
+                .layoutPriority(1)
             Spacer(minLength: 8)
             TextField("Search this snapshot", text: $search)
                 .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 220)
+                .frame(minWidth: 90, idealWidth: 220, maxWidth: 220)
             Button("Restore…", systemImage: "arrow.counterclockwise") {
                 if let selection { onRestore(selection) }
             }

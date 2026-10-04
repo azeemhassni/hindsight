@@ -107,9 +107,6 @@ public struct RootView: View {
                 detailContent
             }
         }
-        // A floor, not a shape: small enough to put beside something else,
-        // large enough that the sidebar and a pane still make sense.
-        .frame(minWidth: 720, minHeight: 420)
         .toolbar { toolbarContent }
         .task { await model.refresh() }
         .onChange(of: model.selectedServer?.id) { _, _ in
@@ -308,7 +305,7 @@ public struct RootView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(maxWidth: 280)
+                .frame(minWidth: 160, idealWidth: 280, maxWidth: 280)
                 .padding(8)
                 Divider()
                 switch logSource {
@@ -397,6 +394,7 @@ struct RecoveryKitBanner: View {
             """)
             .font(.callout)
             .fixedSize(horizontal: false, vertical: true)
+            .lineLimit(6)
             Spacer(minLength: 8)
             Button("Save recovery kit…", action: onExport)
                 .accessibilityLabel("Save the recovery kit for \(serverName)")
@@ -424,6 +422,7 @@ struct ApprovalBanner: View {
             """)
             .font(.callout)
             .fixedSize(horizontal: false, vertical: true)
+            .lineLimit(6)
             Spacer(minLength: 8)
             Button("Open Login Items", action: onOpenSettings)
                 .help("Open Login Items in System Settings, where the agent is allowed to run")

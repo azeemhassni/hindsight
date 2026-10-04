@@ -64,12 +64,14 @@ struct SettingsForm: View {
                     .foregroundStyle(.orange)
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(6)
             } else if let failure = flow.lastSaveFailed {
                 Label(failure, systemImage: "xmark.octagon")
                     .foregroundStyle(.red)
                     .font(.callout)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(6)
             }
             Spacer(minLength: 0)
             if flow.isSaving { ProgressView().controlSize(.small) }

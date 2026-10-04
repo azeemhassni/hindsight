@@ -284,11 +284,13 @@ struct ModeCard: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(6)
                     if let warning = entry.dataLossWarning {
                         Label(warning, systemImage: "exclamationmark.triangle")
                             .font(.callout)
                             .foregroundStyle(.orange)
                             .fixedSize(horizontal: false, vertical: true)
+                            .lineLimit(6)
                     }
                 }
                 Spacer(minLength: 0)
