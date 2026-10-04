@@ -16,7 +16,7 @@ captures the pieces a Coolify rebuild cannot do without.
 
 ## State
 
-Working engine and interface, with 443 tests — most of them against real
+Working engine and interface, with 472 tests — most of them against real
 servers in Docker and a real Coolify install in a local VM rather than against
 mocks. Onboarding a server, backing up a Coolify application or database,
 reading a run's log and restoring are all done from the window. See
@@ -35,44 +35,31 @@ make app        # generate the Xcode project and build Hindsight.app
 `HINDSIGHT_SIGNING_IDENTITY` to sign with your Developer ID; without it the
 build is unsigned and cannot register the background agent.
 
-### Running it before it is signed
+### Signing and installing
 
-The app talks to the agent over XPC, and the agent is normally registered as a
-`SMAppService` LaunchAgent — which needs a signed bundle. To drive the real
-interface against a real agent before then, run the agent as a development
-LaunchAgent:
+`make app` signs with `Developer ID Application` for the team in
+`App/project.yml` (`SM26HBBKRL`) and enables the hardened runtime. On a machine
+without that certificate, `HINDSIGHT_UNSIGNED=1 make app` builds without
+signing — such a build cannot register the background agent, and says so.
 
-```sh
-swift build -c release --product hindsight-agent
-mkdir -p ~/Library/Application\ Support/Hindsight-dev
-cat > ~/Library/Application\ Support/Hindsight-dev/agent.json <<JSON
-{
-  "binaryDirectory": "file://$PWD/vendor/bin/",
-  "catalogURL": "file://$HOME/Library/Application%20Support/Hindsight-dev/catalog.sqlite",
-  "repositoryRoot": "file://$HOME/Library/Application%20Support/Hindsight-dev/repos/",
-  "sshConfigurationDirectory": "file://$HOME/Library/Application%20Support/Hindsight-dev/ssh/"
-}
-JSON
-```
+Install it by copying `Hindsight.app` into `/Applications` and launching it.
+On first launch it registers the agent with `SMAppService`; macOS may ask for
+it to be allowed in Login Items, and the window says so until it is. Backups
+do not run before that.
 
-Then a `~/Library/LaunchAgents/app.hindsight.agent.plist` whose `Program` is
-`$PWD/.build/release/hindsight-agent`, with `MachServices` →
-`app.hindsight.agent`, and these environment variables:
+The build is **not notarised**: Gatekeeper reports `Unnotarized Developer ID`,
+which is fine for a copy built here and refused for one downloaded to another
+Mac.
 
-| Variable | Why |
-|---|---|
-| `HINDSIGHT_AGENT_CONFIG` | points the agent at the scratch configuration above, leaving an installed one alone |
-| `HINDSIGHT_SSH_LOCAL_ONLY=1` | pins the policy to local targets, so a catalog of example servers cannot reach for them |
+Two things worth knowing about a local install:
 
-`launchctl bootstrap gui/$UID ~/Library/LaunchAgents/app.hindsight.agent.plist`
-registers it, and `launchctl bootout gui/$UID/app.hindsight.agent` removes it.
-Launch the app with `HINDSIGHT_CATALOG_PATH` set to the same catalog.
-
-One thing to expect: an unsigned build has no keychain access group, so every
-repository password read raises a system access prompt. Backups, restores and
-the recovery kit wait on it. Nothing freezes — that work is deliberately off
-the main actor and off the agent's actor — but the operation does not finish
-until you answer. A signed build with the shared access group does not prompt.
+- The agent is the only process that reads a secret. The app asks it to list a
+  snapshot, extract a file or assemble a recovery kit, so the window holds no
+  passwords at all.
+- Keychain items belong to the signature that created them. One stored by a
+  differently signed build — a development one, say — is refused, and
+  Hindsight says so: remove it from Keychain Access and let the agent store it
+  again from the recovery kit.
 
 ## Testing
 

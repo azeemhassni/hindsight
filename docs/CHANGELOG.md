@@ -288,3 +288,49 @@ Four bugs found by running it rather than by reading it:
 `HINDSIGHT_SSH_LOCAL_ONLY=1` pins a release build to local targets, which is
 what a development agent needs: a catalog of example servers must not be able
 to reach for them.
+
+## Signed, installed, and the faults that only showed then
+
+Signed with the Developer ID for team `SM26HBBKRL`, hardened runtime, installed
+in `/Applications`. The app registers the agent with `SMAppService`, launchd
+keeps it alive, each end pins the other by code signature, and a backup of the
+local test container lands in the repository chosen during onboarding. That was
+the last item in the architecture's "unproven" list.
+
+Two structural changes made it work:
+
+- **Only the agent touches secrets.** The app no longer links the Keychain
+  module; it asks the agent to list a snapshot's files, extract one for Quick
+  Look, or assemble a recovery kit. Sharing Keychain items between processes
+  needs an entitlement, a provisioning profile and an App ID capability — one
+  process needs none of them, and a window that holds no passwords is a better
+  thing to have anyway.
+- **The agent is a nested background app bundle.** `UNUserNotificationCenter`
+  asserts in a process without one, and launchd restarted the agent in a loop
+  until it had a bundle of its own.
+
+Six faults a real install exposed, each now covered by a test:
+
+- The managed ssh config did not quote its values, and the install path
+  contains a space — so ssh read `/Users/you/Library/Application`, found no
+  `known_hosts`, and called every host key unknown. Test directories now
+  contain spaces for this reason.
+- A failed access probe recorded "passwordless sudo is not available" — a claim
+  about sudo it had learned nothing about — and never asked again, because the
+  retry button only appeared for non-root users.
+- Backups were written under Application Support while prune, check and restore
+  used the location chosen during onboarding. The plan takes the repository
+  from the catalog now.
+- A server added after onboarding had no ssh config stanza, so every job for it
+  failed with "could not resolve hostname". The config is written before every
+  job.
+- A failure before the backup engine started left the job saying "running" for
+  ever; every path now records its outcome.
+- launchd kept running the old agent out of a replaced bundle. The app compares
+  code hashes and asks a stale agent to exit.
+
+Also: ssh's "host key verification failed" is now read as three different
+things — a changed key, a key that was never recorded, and a refusal with no
+evidence either way — rather than warning about interception when nothing had
+been recorded. And a Keychain refusal explains that the item belongs to a
+differently signed build instead of printing a status code.
