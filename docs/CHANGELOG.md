@@ -64,3 +64,15 @@
   run adds under 1% of the first, progress arrives during the run, append-only
   refuses to delete data while permitting lock removal, concurrent backups take
   turns, and an interrupted backup leaves nothing behind.
+
+## M5 — Retention, maintenance, integrity
+
+- Grandfather-father-son retention that agrees with restic snapshot for
+  snapshot, checked against `forget --dry-run --json` on a generated two-year
+  repository across ten policies.
+- `forget`, `prune`, `diff`, and a `check --read-data-subset` rotation that
+  reaches the whole repository over a configurable window.
+- A prune is always followed by a check, and refuses to start without headroom.
+- Verified locally: a corrupted pack is caught by reading data, a full rotation
+  finds damage anywhere in the repository, and pruning leaves a healthy
+  repository that is smaller than before.

@@ -178,6 +178,93 @@ public struct ResticClient: Sendable {
         try await run(arguments, operation: "unlock")
     }
 
+    /// Applies a retention policy. Always available as a dry run, because the
+    /// UI must be able to show exactly what a policy change would delete.
+    public func forget(
+        keepWithinHours: Int,
+        keepDaily: Int,
+        keepWeekly: Int,
+        keepMonthly: Int,
+        keepYearly: Int,
+        tag: SnapshotTag? = nil,
+        dryRun: Bool,
+        prune: Bool = false,
+        timeout: Duration? = nil
+    ) async throws -> [ResticForgetGroup] {
+        var arguments = ["forget", "--json"]
+        if keepWithinHours > 0 { arguments += ["--keep-within", "\(keepWithinHours)h"] }
+        if keepDaily > 0 { arguments += ["--keep-daily", String(keepDaily)] }
+        if keepWeekly > 0 { arguments += ["--keep-weekly", String(keepWeekly)] }
+        if keepMonthly > 0 { arguments += ["--keep-monthly", String(keepMonthly)] }
+        if keepYearly > 0 { arguments += ["--keep-yearly", String(keepYearly)] }
+        if let tag { arguments += ["--tag", tag.rawValue] }
+        if dryRun { arguments.append("--dry-run") }
+        if prune, !dryRun { arguments.append("--prune") }
+
+        let result = try await run(arguments, operation: "forget", timeout: timeout)
+        guard let data = result.standardOutput.data(using: .utf8), !data.isEmpty else { return [] }
+        do {
+            return try JSONDecoder.restic().decode([ResticForgetGroup].self, from: data)
+        } catch {
+            // With --prune, restic interleaves progress with the JSON array.
+            guard let start = result.standardOutput.firstIndex(of: "["),
+                  let end = result.standardOutput.lastIndex(of: "]"),
+                  let slice = String(result.standardOutput[start...end]).data(using: .utf8),
+                  let groups = try? JSONDecoder.restic().decode([ResticForgetGroup].self, from: slice)
+            else {
+                throw ResticError.unexpectedOutput(operation: "forget", output: result.standardOutput)
+            }
+            return groups
+        }
+    }
+
+    public func forget(
+        policy: RetentionPolicy,
+        tag: SnapshotTag? = nil,
+        dryRun: Bool,
+        prune: Bool = false,
+        timeout: Duration? = nil
+    ) async throws -> [ResticForgetGroup] {
+        try await forget(
+            keepWithinHours: policy.keepWithinHours,
+            keepDaily: policy.keepDaily,
+            keepWeekly: policy.keepWeekly,
+            keepMonthly: policy.keepMonthly,
+            keepYearly: policy.keepYearly,
+            tag: tag,
+            dryRun: dryRun,
+            prune: prune,
+            timeout: timeout
+        )
+    }
+
+    public func prune(timeout: Duration? = nil) async throws {
+        try await run(["prune"], operation: "prune", timeout: timeout)
+    }
+
+    public func diff(
+        from source: SnapshotID,
+        to target: SnapshotID
+    ) async throws -> (changes: [(path: String, modifier: String)], statistics: ResticDiffStatistics?) {
+        let result = try await run(
+            ["diff", "--json", source.value, target.value],
+            operation: "diff"
+        )
+        var changes: [(path: String, modifier: String)] = []
+        var statistics: ResticDiffStatistics?
+        for line in result.standardOutputLines {
+            switch ResticDiffMessage.decode(line: line) {
+            case let .change(path, modifier):
+                changes.append((path, modifier))
+            case let .statistics(value):
+                statistics = value
+            case nil:
+                continue
+            }
+        }
+        return (changes, statistics)
+    }
+
     public func check(
         readDataSubset: String? = nil,
         timeout: Duration? = nil

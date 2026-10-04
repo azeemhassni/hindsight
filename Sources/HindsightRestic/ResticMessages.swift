@@ -201,11 +201,19 @@ public struct ResticCheckSummary: Decodable, Sendable, Hashable {
 
 /// One group of `restic forget --json`.
 public struct ResticForgetGroup: Decodable, Sendable, Hashable {
+    /// restic's own explanation of why a snapshot was kept, which is what the
+    /// retention engine is checked against.
+    public struct Reason: Decodable, Sendable, Hashable {
+        public var snapshot: ResticSnapshot
+        public var matches: [String]
+    }
+
     public var tags: [String]?
     public var host: String?
     public var paths: [String]?
     public var keep: [ResticSnapshot]?
     public var remove: [ResticSnapshot]?
+    public var reasons: [Reason]?
 }
 
 public enum ResticDiffMessage: Sendable, Hashable {
