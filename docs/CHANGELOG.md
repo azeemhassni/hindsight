@@ -379,3 +379,32 @@ otherwise open that way for ever.
 Two tabs — Snapshots and Logs — still ask for about 1000 points of width before
 they will shrink further, because of what their split panes hold; the window
 grows to meet them when you switch to one while very small.
+
+## An icon, and a notarised build
+
+The icon is a rear-view mirror: the name is the picture, and inside the glass
+three racks recede toward a vanishing point with the nearest one lit. The first
+attempt was a circular arrow around a server rack, which is what every other
+backup app ships. It is drawn by `scripts/make-icon.swift` rather than stored
+as artwork, so it can be changed in one place and re-rendered at every size —
+and it simplifies below 64 points, where three bars and their status lights
+turn into a grey smudge.
+
+The app is **notarised and stapled**. Gatekeeper now reports
+`source=Notarized Developer ID` where it used to say `Unnotarized`. Two things
+had to be fixed before Apple would take it:
+
+- The signature carried no secure timestamp, which notarisation refuses.
+- The vendored `restic` and `rest-server` binaries inside the bundle were not
+  signed. Every Mach-O in an app has to carry its own signature with the
+  hardened runtime; the Linux binaries are data here and are left alone.
+
+Signing those rewrites them, so their pinned upstream digests can no longer
+match — and the runtime check that compares them had to change. Inside a sealed
+bundle a binary is now trusted on the bundle's signature, which macOS checks
+before the code runs. Everywhere else, including every binary that travels to a
+server, the digest pin stands exactly as it did; there are tests for each case.
+
+`make notarize` builds, verifies, submits, waits, staples and asks Gatekeeper
+for its verdict. It reuses any notarytool keychain profile on the machine, so
+the password is not asked for again.

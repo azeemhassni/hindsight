@@ -18,6 +18,8 @@ settings:
     DEVELOPMENT_TEAM: SM26HBBKRL
     CODE_SIGN_STYLE: Manual
     ENABLE_HARDENED_RUNTIME: YES
+    # Notarisation refuses a signature without a secure timestamp.
+    OTHER_CODE_SIGN_FLAGS: "--timestamp"
     # `get-task-allow` is what lets a debugger attach, and notarisation refuses
     # a Developer ID build that carries it.
     CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
@@ -55,6 +57,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.hindsight
         INFOPLIST_FILE: Hindsight/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_ENTITLEMENTS: Hindsight/Hindsight.entitlements
         CODE_SIGN_IDENTITY: "Developer ID Application"
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
@@ -78,7 +81,20 @@ targets:
             "$agents/app.hindsight.agent.plist"
           for binary in "$SRCROOT/../vendor/bin/"*; do
             [ -f "$binary" ] || continue
-            ditto "$binary" "$resources/$(basename "$binary")"
+            name="$(basename "$binary")"
+            ditto "$binary" "$resources/$name"
+            # Every Mach-O inside the bundle has to carry its own signature,
+            # with the hardened runtime, or notarisation rejects the app. The
+            # Linux binaries are data here and are left alone.
+            case "$name" in
+              *darwin*)
+                if [ -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ] \
+                  && [ "${CODE_SIGNING_ALLOWED:-YES}" != "NO" ]; then
+                  codesign --force --options runtime --timestamp \
+                    --sign "$EXPANDED_CODE_SIGN_IDENTITY" "$resources/$name"
+                fi
+                ;;
+            esac
           done
 
   # An app bundle rather than a bare tool, and deliberately so: the agent posts

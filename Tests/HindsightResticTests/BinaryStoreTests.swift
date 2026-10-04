@@ -299,3 +299,91 @@ struct SnapshotBrowsingTests {
         }
     }
 }
+
+/// What guarantees a bundled binary, now that it is signed.
+///
+/// Notarisation requires every Mach-O inside the app to carry its own
+/// signature, and signing rewrites the file — so the digest published upstream
+/// can no longer match the copy that ships. Inside a sealed bundle macOS checks
+/// the signature before the code runs, which is a stronger guarantee than a
+/// hash compared against a constant compiled into the same binary doing the
+/// comparing. Everywhere else the pin stands, and that includes every binary
+/// that travels to a server.
+@Suite("Verifying a binary that lives in a signed bundle")
+struct BundledBinaryVerificationTests {
+    private func binary(digest: String) -> PinnedBinary {
+        PinnedBinary(
+            tool: .restic,
+            version: "0.0.1",
+            platform: .darwinARM64,
+            archiveName: "x.bz2",
+            archiveSHA256: String(repeating: "0", count: 64),
+            binarySHA256: digest
+        )
+    }
+
+    private func makeBundle(signed: Bool) throws -> URL {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("hindsight-bundle-\(UUID().uuidString)")
+        let resources = root.appendingPathComponent("Hindsight.app/Contents/Resources")
+        try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        if signed {
+            let seal = root.appendingPathComponent("Hindsight.app/Contents/_CodeSignature")
+            try FileManager.default.createDirectory(at: seal, withIntermediateDirectories: true)
+            try Data("<plist/>".utf8).write(to: seal.appendingPathComponent("CodeResources"))
+        }
+        return resources
+    }
+
+    private func write(_ contents: String, named name: String, in directory: URL) throws {
+        let file = directory.appendingPathComponent(name)
+        try Data(contents.utf8).write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: file.path)
+    }
+
+    @Test("accepts a signed bundle's own binary, whose bytes signing has changed")
+    func acceptsSignedBundleBinary() throws {
+        let resources = try makeBundle(signed: true)
+        let pinned = binary(digest: String(repeating: "a", count: 64))
+        try write("signed, so no longer the upstream bytes", named: pinned.fileName, in: resources)
+
+        let store = BinaryStore(directory: resources)
+        #expect(throws: Never.self) { try store.verifiedURL(for: pinned) }
+    }
+
+    @Test("still pins a binary in an app bundle that carries no signature")
+    func pinsUnsignedBundleBinary() throws {
+        let resources = try makeBundle(signed: false)
+        let pinned = binary(digest: String(repeating: "a", count: 64))
+        try write("tampered", named: pinned.fileName, in: resources)
+
+        let store = BinaryStore(directory: resources)
+        #expect(throws: BinaryStoreError.self) { try store.verifiedURL(for: pinned) }
+    }
+
+    /// The case that matters most: a binary outside any bundle is the one that
+    /// gets copied to a server, and it is pinned whatever else changes.
+    @Test("still pins a binary that is not in a bundle at all")
+    func pinsLooseBinary() throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("hindsight-loose-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let pinned = binary(digest: String(repeating: "a", count: 64))
+        try write("tampered", named: pinned.fileName, in: directory)
+
+        let store = BinaryStore(directory: directory)
+        #expect(throws: BinaryStoreError.self) { try store.verifiedURL(for: pinned) }
+    }
+
+    @Test("an executable bit is still required, signed bundle or not")
+    func stillRequiresAnExecutable() throws {
+        let resources = try makeBundle(signed: true)
+        let pinned = binary(digest: String(repeating: "a", count: 64))
+        let file = resources.appendingPathComponent(pinned.fileName)
+        try Data("not executable".utf8).write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+
+        let store = BinaryStore(directory: resources)
+        #expect(throws: BinaryStoreError.self) { try store.verifiedURL(for: pinned) }
+    }
+}

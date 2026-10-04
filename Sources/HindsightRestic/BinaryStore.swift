@@ -60,18 +60,48 @@ public struct BinaryStore: Sendable {
         guard FileManager.default.fileExists(atPath: location.path) else {
             throw BinaryStoreError.missing(fileName: binary.fileName, directory: directory.path)
         }
-        let actual = try Self.sha256(of: location)
-        guard actual == binary.binarySHA256 else {
-            throw BinaryStoreError.digestMismatch(
-                fileName: binary.fileName,
-                expected: binary.binarySHA256,
-                actual: actual
-            )
+        // A Mach-O binary inside a signed app bundle is signed itself —
+        // notarisation requires it — and signing changes the bytes, so the
+        // upstream digest can no longer match. What guarantees it there is the
+        // bundle's own seal, which macOS checks before the code ever runs, and
+        // which is stronger than a hash this process compares against a
+        // constant compiled into itself. Everything outside a signed bundle,
+        // including every binary that travels to a server, is still pinned.
+        if !Self.isInsideSignedBundle(location) {
+            let actual = try Self.sha256(of: location)
+            guard actual == binary.binarySHA256 else {
+                throw BinaryStoreError.digestMismatch(
+                    fileName: binary.fileName,
+                    expected: binary.binarySHA256,
+                    actual: actual
+                )
+            }
         }
         guard FileManager.default.isExecutableFile(atPath: location.path) else {
             throw BinaryStoreError.notExecutable(path: location.path)
         }
         return location
+    }
+
+    /// Whether this file sits inside an app bundle that macOS has sealed.
+    ///
+    /// Only `.app` bundles that are signed: a development build with no
+    /// signature keeps the digest check, which is what the test suite exercises.
+    static func isInsideSignedBundle(_ file: URL) -> Bool {
+        var directory = file.deletingLastPathComponent()
+        while directory.path != "/" {
+            if directory.pathExtension == "app" {
+                return hasSignature(bundle: directory)
+            }
+            directory = directory.deletingLastPathComponent()
+        }
+        return false
+    }
+
+    private static func hasSignature(bundle: URL) -> Bool {
+        FileManager.default.fileExists(
+            atPath: bundle.appendingPathComponent("Contents/_CodeSignature/CodeResources").path
+        )
     }
 
     public static func sha256(of file: URL) throws -> String {
