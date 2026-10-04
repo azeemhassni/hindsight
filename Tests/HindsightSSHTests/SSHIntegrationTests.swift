@@ -165,10 +165,18 @@ struct SSHIntegrationTests {
         try await installer.verifyInstalled(binary, on: destination, facts: facts)
 
         // Tamper with the cached binary: the next verification must fail closed.
+        // Replaced rather than appended to, because appending to a file another
+        // test may be executing fails with ETXTBSY — and replacement is what a
+        // real tamper would look like anyway.
+        let quoted = ShellQuoting.quote(path)
         try await client.run(
             RemoteCommand(
                 executable: "/bin/sh",
-                arguments: ["-c", "printf 'x' >> \(ShellQuoting.quote(path))"]
+                arguments: [
+                    "-c",
+                    "cp \(quoted) \(quoted).tampered && printf 'x' >> \(quoted).tampered "
+                        + "&& mv -f \(quoted).tampered \(quoted)",
+                ]
             ),
             on: destination
         )
