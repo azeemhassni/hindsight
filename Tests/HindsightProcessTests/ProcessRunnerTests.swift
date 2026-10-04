@@ -122,3 +122,32 @@ struct ProcessRunnerTests {
         #expect(result.exit.isSuccess)
     }
 }
+
+@Suite("Line splitting")
+struct LineSplittingTests {
+    @Test("splits on carriage returns, which is how a terminal rewrites a line")
+    func splitsOnCarriageReturn() async throws {
+        // restic separates progress updates with \r when it writes to a
+        // terminal, so a splitter that only knows \n reports no progress at all.
+        let result = try await ProcessRunner().run(
+            Command(path: "/usr/bin/printf", arguments: ["a\rb\rc\n"])
+        )
+        #expect(result.standardOutputLines == ["a", "b", "c"])
+    }
+
+    @Test("treats CRLF as one break rather than two")
+    func treatsCRLFAsOneBreak() async throws {
+        let result = try await ProcessRunner().run(
+            Command(path: "/usr/bin/printf", arguments: ["one\r\ntwo\r\n"])
+        )
+        #expect(result.standardOutputLines == ["one", "two"])
+    }
+
+    @Test("keeps a line that has no break at all")
+    func keepsUnterminatedLine() async throws {
+        let result = try await ProcessRunner().run(
+            Command(path: "/usr/bin/printf", arguments: ["trailing"])
+        )
+        #expect(result.standardOutput == "trailing")
+    }
+}

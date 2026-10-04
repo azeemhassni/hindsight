@@ -49,3 +49,18 @@
 - Resource history by tag, pruned-snapshot reconciliation, bounded job event
   history, and retention that falls back to the documented defaults so a
   missing row can never read as "keep nothing".
+
+## M4 — First real backup, end to end
+
+- rest-server supervised per session: loopback, append-only, private repos, a
+  kernel-chosen port, and `{SHA}` credentials generated per run.
+- Reverse-tunnelled backups with live progress, a metadata snapshot of each
+  server, include paths filtered to what actually exists, and restic's
+  "finished but incomplete" exit status surfaced as a warning rather than a
+  success.
+- Repository locking in two layers, an actor and `flock`, so the app and the
+  agent cannot collide.
+- Verified against the local container: stock restic reads the result, a repeat
+  run adds under 1% of the first, progress arrives during the run, append-only
+  refuses to delete data while permitting lock removal, concurrent backups take
+  turns, and an interrupted backup leaves nothing behind.

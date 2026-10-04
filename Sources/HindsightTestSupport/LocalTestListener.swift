@@ -2,12 +2,12 @@ import Foundation
 
 /// A single-shot TCP listener on 127.0.0.1, used to prove a reverse forward
 /// actually carries traffic.
-final class LocalTestListener: @unchecked Sendable {
+public final class LocalTestListener: @unchecked Sendable {
     private let descriptor: Int32
     private let queue = DispatchQueue(label: "dev.hindsight.test.listener")
-    let port: Int
+    public let port: Int
 
-    init(responding response: String) throws {
+    public init(responding response: String) throws {
         let fileDescriptor = socket(AF_INET, SOCK_STREAM, 0)
         guard fileDescriptor >= 0 else { throw ListenerError.couldNotCreateSocket }
 
@@ -59,11 +59,11 @@ final class LocalTestListener: @unchecked Sendable {
         }
     }
 
-    func stop() {
+    public func stop() {
         close(descriptor)
     }
 
-    enum ListenerError: Error {
+    public enum ListenerError: Error {
         case couldNotCreateSocket
         case couldNotBind
     }

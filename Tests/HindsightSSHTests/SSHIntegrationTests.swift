@@ -2,6 +2,7 @@ import Foundation
 import HindsightCore
 import HindsightProcess
 import HindsightRestic
+import HindsightTestSupport
 import Testing
 @testable import HindsightSSH
 
@@ -147,7 +148,7 @@ struct SSHIntegrationTests {
 
         let facts = try await client.probeFacts(on: destination)
         let binary = try PinnedBinaries.restic(for: facts.platform.architecture)
-        let store = BinaryStore(directory: vendorBinDirectory())
+        let store = BinaryStore(directory: TestEnvironment.vendorBinDirectory())
         let installer = RemoteBinaryInstaller(client: client, store: store)
 
         let path = try await installer.ensureInstalled(binary, on: destination, facts: facts)
@@ -216,7 +217,7 @@ struct SSHIntegrationTests {
         // ssh's side, from the server being rebuilt or the connection being
         // intercepted — and it leaves the shared container untouched, so this
         // test cannot break the others.
-        let wrongKey = try await generateUnrelatedHostKey()
+        let wrongKey = try await TestEnvironment.generateUnrelatedHostKey()
         try client.trust(wrongKey, for: destination)
 
         do {
@@ -257,38 +258,4 @@ struct SSHIntegrationTests {
         try await client.openControlMaster(on: destination)
         #expect(await client.controlMasterIsRunning(on: destination))
     }
-}
-
-func vendorBinDirectory(file: StaticString = #filePath) -> URL {
-    URL(fileURLWithPath: "\(file)")
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .appendingPathComponent("vendor/bin")
-}
-
-func repositoryRootDirectory(file: StaticString = #filePath) -> URL {
-    URL(fileURLWithPath: "\(file)")
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-}
-
-/// A valid ed25519 public key that belongs to no server in this test run.
-func generateUnrelatedHostKey() async throws -> HostKey {
-    let directory = URL(fileURLWithPath: NSTemporaryDirectory())
-        .appendingPathComponent("hindsight-wrongkey-\(UUID().uuidString)")
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let keyFile = directory.appendingPathComponent("id_ed25519")
-
-    let runner = HindsightProcess.ProcessRunner()
-    try await runner.run(
-        HindsightProcess.Command(
-            path: "/usr/bin/ssh-keygen",
-            arguments: ["-q", "-t", "ed25519", "-N", "", "-C", "unrelated", "-f", keyFile.path]
-        )
-    )
-    let publicKey = try String(contentsOf: keyFile.appendingPathExtension("pub"), encoding: .utf8)
-    let fields = publicKey.split(separator: " ").map(String.init)
-    return HostKey(host: "placeholder", keyType: fields[0], base64Key: fields[1], fingerprint: "")
 }
