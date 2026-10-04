@@ -16,9 +16,13 @@ milestone is called done.
 
 Repository skeleton and the test loop everything else relies on.
 
-- `Package.swift` with every module from Architecture §3, Swift 6 strict
-  concurrency, macOS 14 minimum.
-- `Makefile`: `test`, `test-integration`, `lint`, `vendor`, `app`.
+- `Package.swift`, Swift 6 language mode, macOS 14 minimum. Targets are declared
+  as the milestone that fills them begins, rather than as empty placeholders:
+  an empty module compiles trivially, so "compiles independently" would assert
+  nothing. The full graph from Architecture §3 is the destination, not M0's
+  deliverable.
+- `Makefile`: `test`, `test-integration`, `lint`, `vendor`. `app` arrives with
+  the app target in M6.
 - `HindsightCore` domain types: `Server`, `Repository`, `Snapshot`, `Schedule`,
   `RetentionPolicy`, `BackupProfile`, `JobKind`, error taxonomy.
 - `HindsightProcess`: argv/env subprocess runner with streaming output,
@@ -27,12 +31,15 @@ Repository skeleton and the test loop everything else relies on.
 
 **AC**
 
-- `swift build` and `make test` are green with zero concurrency warnings under
-  `-strict-concurrency=complete`.
+- `swift build` and `make test` are green in Swift 6 language mode with no
+  concurrency diagnostics and no `@unchecked Sendable` outside a documented,
+  lock-protected boundary.
 - A test proves `HindsightProcess` streams incrementally (does not buffer to
   completion), propagates cancellation by killing the child, and redacts a
   registered secret from captured stdout, stderr, and error descriptions.
-- Every module compiles independently; no library target imports AppKit.
+- A test proves the child process does not inherit the parent environment
+  beyond an explicit allowlist.
+- No library target imports AppKit.
 
 ---
 
@@ -194,7 +201,8 @@ The core of the product.
   timeline, size/dedup chart, schedule status, activity log.
 - Settings for connection, schedule, retention, rules, bandwidth, repo location,
   integrity rotation.
-- Onboarding: add server → verify host key → detect sudo/Coolify/OS → first
+- Onboarding: add server → verify host key → detect sudo/Coolify/OS → choose
+  repository location (external volumes first, free space per volume) → first
   backup → recovery kit export.
 - Recovery kit generator: human-readable plus JSON, with stock-restic commands.
 

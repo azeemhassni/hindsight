@@ -640,7 +640,8 @@ default: color is reserved for states that need attention.
 - **Activity log** — live progress with bytes scanned, bytes new, ETA; errors
   are copyable in full, with the exact failing command, secrets redacted.
 - **Onboarding** — add server, verify host key fingerprint, detect sudo, Coolify
-  and OS, run the first backup, export the recovery kit. The kit step cannot be
+  and OS, choose the repository location (external volumes first, free space
+  shown), run the first backup, export the recovery kit. The kit step cannot be
   skipped.
 
 Progress arrives as XPC events, so the UI never polls, and a closed window costs
@@ -699,8 +700,8 @@ runs the rest, and tears it down even on failure.
 - `Package.swift` at the root for all modules; `swift test` is the headless path.
 - `App/project.yml` plus XcodeGen generates the app project, because a
   hand-maintained `project.pbxproj` is unreviewable in diffs and merge-hostile.
-  XcodeGen is a build-time tool only, not a runtime dependency. (Open question
-  in §19 if you would rather check in the project file.)
+  XcodeGen is a build-time tool only, not a runtime dependency; the generated
+  `project.pbxproj` is git-ignored.
 - `make vendor` fetches and verifies the pinned binaries (§6.4).
 - Signing: Developer ID Application, hardened runtime, notarized, with the agent
   embedded in `Contents/Library/LaunchAgents`. The app and agent share a team
@@ -744,7 +745,8 @@ not a preference.
    Direct notarized distribution is the consequence.
 9. **The menu bar extra belongs to the app, not the agent.** A LaunchAgent is
    not a UI agent, so quitting the app removes its menu bar item while backups
-   continue. §19 asks how you want that handled.
+   continue (decided in §19). The item means "the UI is running" and never
+   implies anything about whether backups are scheduled.
 10. **Coolify facts are now sourced, not remembered.** Labels and API surface
     were read from Coolify `v4.3.23` and are listed in §13.1. Everything about
     `/data/coolify` internals, container and role names, and the DB schema
@@ -755,16 +757,23 @@ not a preference.
 
 ---
 
-## 19. Open decisions for you
+## 19. Decisions
 
-1. **Xcode project generation** — XcodeGen from a checked-in `project.yml`
-   (recommended: reviewable, merge-friendly) or a checked-in `project.pbxproj`
-   (no tooling, unreadable diffs)?
-2. **Menu bar when the app is quit** — should quitting leave a lightweight
-   menu-bar-only presence running, or is "no menu bar item, backups continue"
-   the right behavior?
-3. **Repository location default** —
-   `~/Library/Application Support/Hindsight/repos/`, or ask during onboarding
-   with external disks surfaced first?
-4. **Signing identity** — do you have a Developer ID for notarization, or should
-   the Makefile produce an ad-hoc signed build for local use until then?
+Resolved, 2026-10-04.
+
+1. **Xcode project generation** — XcodeGen from a checked-in `App/project.yml`.
+   XcodeGen is a developer prerequisite (`brew install xcodegen`); `make app`
+   fails with install instructions if it is missing. `project.pbxproj` is
+   generated and git-ignored.
+2. **Menu bar when the app is quit** — no menu bar item. Quitting the app
+   removes it; the agent keeps running and backups continue. The menu bar item
+   therefore means "the UI is running", and the agent's state is never inferred
+   from its presence. Onboarding says this once, plainly.
+3. **Repository location** — asked during onboarding, with external and
+   network-capable volumes listed first, free space shown per volume, and
+   `~/Library/Application Support/Hindsight/repos/` offered as the fallback.
+   Changing it later moves existing repositories rather than orphaning them.
+4. **Signing** — Developer ID Application, hardened runtime, notarized. `make
+   app` signs with the identity from `HINDSIGHT_SIGNING_IDENTITY`, falling back
+   to ad-hoc only for local unsigned test builds, which cannot register a
+   LaunchAgent and say so.
