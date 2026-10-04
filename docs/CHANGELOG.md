@@ -242,3 +242,49 @@ the backup engine.
 The slow tests were trimmed as promised: the retention corpus is built once per
 suite rather than per test, and the progress fixture is 200 MB instead of 600.
 The retention suite went from 128 seconds to 67.
+
+## The window, finished
+
+Everything the brief asks for can now be done from the app: onboard a server,
+onboard or back up a single Coolify application or database, read a run's log
+in full, and restore — a whole snapshot, one path out of it, or one Coolify
+resource.
+
+- The server's view is five parts: Overview, Snapshots, Coolify, Logs,
+  Settings, with `⌘1`–`⌘5` to move between them.
+- **Adding a server** is a sheet over the window, wired to the agent step by
+  step: the host key's fingerprint to compare, an access check with the
+  sudoers line to paste, what the probe found, where the repository goes, the
+  first backup, and the recovery kit. The kit cannot be stepped over, closing
+  the sheet before saving it asks again, and a server without one keeps a
+  banner in its own view.
+- **Coolify** resources are discovered by the agent over ssh, cached in the
+  catalog, and shown with where the list came from — so a label-only list says
+  plainly that it cannot see stopped resources. Each resource can be backed up
+  on its own; the resource list is read off the server again first, because a
+  redeploy moves volumes.
+- **Logs** show every run with its state, duration and bytes, and the chosen
+  run's log in full, copyable, filterable by level.
+- **Settings** are read back from the agent before the form opens, so saving
+  cannot overwrite what is in force with defaults. The bandwidth limit the form
+  offered now actually reaches restic.
+- **Snapshots** lists every snapshot and browses the chosen one a directory at
+  a time, with Quick Look and single-path restore.
+
+Four bugs found by running it rather than by reading it:
+
+- A Keychain read on the main actor froze the window — it disappeared from the
+  accessibility tree while the process sat there alive. The same call on the
+  agent's actor stopped the agent answering anything at all, so the window sat
+  on "Connecting…" while every subsystem underneath was healthy. Both now run
+  off their actors, with a test that blocks a secret store on purpose.
+- The window's closures capture the `App` struct as it was when `body` ran, so
+  a `@State` value set afterwards is invisible to them: the snapshot list came
+  up empty with the catalog open. The catalog lives in an object now.
+- Jobs left `running` by a stopped agent stayed that way for ever.
+- Embedded panes were setting the window's title and search field; one of them
+  renamed the window to "Activity".
+
+`HINDSIGHT_SSH_LOCAL_ONLY=1` pins a release build to local targets, which is
+what a development agent needs: a catalog of example servers must not be able
+to reach for them.

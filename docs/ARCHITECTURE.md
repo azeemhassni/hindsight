@@ -819,24 +819,71 @@ wired to it. What remains unproven is listed honestly at the end.
   onboarding, settings persistence, notifications, the snapshot browser, and
   the recovery kit.
 
-**What the interface drives**
+**The window**
+
+The sidebar lists servers; the server's own view is five parts, each a request
+away from the agent:
+
+| Part | What it shows | What it drives |
+|---|---|---|
+| Overview | health, schedule, the snapshot timeline, repository size and savings | backup, restore, maintenance, recovery kit |
+| Snapshots | every snapshot, filtered by kind, and the chosen one's files | restore the whole snapshot, restore one path, Quick Look one file |
+| Coolify | projects, environments and resources, with where the list came from | back up one resource, restore one resource |
+| Logs | every run with its state, duration and bytes, and the chosen run's log in full | reload, copy a log |
+| Settings | the settings in force, read back from the agent | one sparse save |
+
+Adding a server is a sheet over the window: connection details, the host key's
+fingerprint to compare, an access check with the sudoers line to paste, what
+the probe found, where the repository goes, the first backup, and the recovery
+kit. The kit step cannot be stepped over, and closing the sheet after the
+server exists asks again — a server whose password exists only on this Mac
+keeps a banner in its own view until a kit is saved.
+
+**What the interface asks the agent**
 
 | Piece | How |
 |---|---|
 | Backup now | `backUpNow` over XPC, queued per repository |
+| One Coolify resource | `backUpResource`; the resource list is read off the server again first, because a redeploy moves volumes |
 | Restore | `previewRestore` then `runRestore`; the preview takes the safety snapshot, and the agent re-checks the typed hostname |
 | Maintenance | `runMaintenance` / `checkIntegrity`, plus the agent's own half-hourly sweep |
-| Settings | one sparse `updateServerSettings`; untouched fields stay unset so saving one cannot reset another |
+| Settings | `serverSettings` to read, one sparse `updateServerSettings` to write; untouched fields stay unset so saving one cannot reset another |
 | Onboarding | `scanHostKey`, `trustHostKey`, `probeServer`, `addServer` — separate because each fails on its own |
+| Coolify discovery | `discoverCoolify`; cached in the catalog so an unreachable server shows what was last seen, marked as such |
+| Logs | `jobHistory` and `jobLog`, read from the catalog by the agent |
 | Snapshot browser | read directly from the local repository, one directory at a time; reads need no lock |
 | Recovery kit | assembled in the app from the catalog and the Keychain, saved through a file dialog, refused if any password is missing |
 | Notifications | failures, integrity problems and finished restores only — never routine successes |
 
+### 20.1 Nothing slow on the main actor, nothing blocking on the agent's actor
+
+Two rules, both learned by watching the app rather than by reasoning about it:
+
+- **The app** does Keychain reads, binary digest checks and restic calls off
+  the main actor (`RepositoryAccess`). A Keychain read can put a system dialog
+  on screen; on the main actor that stops the window drawing, and the window
+  disappears from the accessibility tree while the process sits there alive.
+- **The agent** does the same work off its own actor (`AgentCore.secret`).
+  Called directly, one blocked Keychain read stops the actor answering
+  anything: no status, no job history, no new work, while every subsystem
+  underneath is healthy. The window sits on "Connecting…" and the agent looks
+  dead. There is a test for this (`AgentResponsivenessTests`) that blocks a
+  secret store on purpose and insists the agent still answers.
+
+Both are worse in an unsigned build, where every Keychain read raises a prompt,
+but neither is specific to one: a locked keychain or a wedged `securityd` does
+the same thing to a signed one.
+
 **Still unproven**
 
 - Restoring a Coolify instance end to end into a fresh virtual machine.
+- Per-resource backup and restore against the live Coolify VM: OrbStack's ssh
+  gateway refuses remote port forwarding outright, and every backup needs a
+  reverse tunnel. The test for it skips with that reason rather than failing;
+  it needs the VM reachable on its own address. See `docs/COOLIFY.md` §10.
 - Cross-server migration of a resource.
 - Application and service resource labels, observed rather than inferred; see
   `docs/COOLIFY.md` §10 for why and what it needs.
 - The agent as an actual `SMAppService` LaunchAgent, which needs a Developer ID
-  to sign with.
+  to sign with. A development LaunchAgent is described in the README and is how
+  the interface above was driven end to end.

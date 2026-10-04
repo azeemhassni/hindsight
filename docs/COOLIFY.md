@@ -296,5 +296,21 @@ Honest gaps, to be closed before the features that depend on them:
   done: its `private_key` column is encrypted with `APP_KEY`, and writing
   Coolify's private schema is exactly what Hindsight refuses to do elsewhere.
 - **Restoring a Coolify instance** end to end into a fresh VM.
+- **Backing up anything on this VM at all.** Every backup needs a reverse
+  tunnel, and the only route to the VM is OrbStack's ssh gateway on
+  `127.0.0.1:32222`, which refuses remote port forwarding outright:
+
+  ```
+  $ ssh -p 32222 -o ExitOnForwardFailure=yes -R 0:127.0.0.1:12345 root@coolify@127.0.0.1 true
+  Error: remote port forwarding failed for listen port 0
+  ```
+
+  The VM's own `sshd` allows it (`sshd -T` reports `allowtcpforwarding yes`),
+  so this is the gateway's limitation, not Coolify's or Hindsight's. Direct ssh
+  to the VM's address (192.168.139.204, or `coolify.orb.local`) answers
+  "No route to host" from this host — the same OrbStack networking fault
+  recorded in R30. Discovery works over the gateway, so that is verified; the
+  per-resource backup test skips with this reason rather than failing
+  (`CoolifyTestEnvironment.supportsReverseForwarding`).
 - Whether `coolify-proxy` is absent until a resource needs it: it was running
   here after the first deploy, but a brand-new install may not have it.

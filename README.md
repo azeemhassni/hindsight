@@ -16,9 +16,10 @@ captures the pieces a Coolify rebuild cannot do without.
 
 ## State
 
-Working engine and interface, with 402 tests — most of them against real
+Working engine and interface, with 443 tests — most of them against real
 servers in Docker and a real Coolify install in a local VM rather than against
-mocks. See
+mocks. Onboarding a server, backing up a Coolify application or database,
+reading a run's log and restoring are all done from the window. See
 `docs/PLAN.md` for what each milestone delivered and `docs/CHANGELOG.md` for
 the running log.
 
@@ -33,6 +34,45 @@ make app        # generate the Xcode project and build Hindsight.app
 `make app` needs [XcodeGen] (`brew install xcodegen`). Set
 `HINDSIGHT_SIGNING_IDENTITY` to sign with your Developer ID; without it the
 build is unsigned and cannot register the background agent.
+
+### Running it before it is signed
+
+The app talks to the agent over XPC, and the agent is normally registered as a
+`SMAppService` LaunchAgent — which needs a signed bundle. To drive the real
+interface against a real agent before then, run the agent as a development
+LaunchAgent:
+
+```sh
+swift build -c release --product hindsight-agent
+mkdir -p ~/Library/Application\ Support/Hindsight-dev
+cat > ~/Library/Application\ Support/Hindsight-dev/agent.json <<JSON
+{
+  "binaryDirectory": "file://$PWD/vendor/bin/",
+  "catalogURL": "file://$HOME/Library/Application%20Support/Hindsight-dev/catalog.sqlite",
+  "repositoryRoot": "file://$HOME/Library/Application%20Support/Hindsight-dev/repos/",
+  "sshConfigurationDirectory": "file://$HOME/Library/Application%20Support/Hindsight-dev/ssh/"
+}
+JSON
+```
+
+Then a `~/Library/LaunchAgents/app.hindsight.agent.plist` whose `Program` is
+`$PWD/.build/release/hindsight-agent`, with `MachServices` →
+`app.hindsight.agent`, and these environment variables:
+
+| Variable | Why |
+|---|---|
+| `HINDSIGHT_AGENT_CONFIG` | points the agent at the scratch configuration above, leaving an installed one alone |
+| `HINDSIGHT_SSH_LOCAL_ONLY=1` | pins the policy to local targets, so a catalog of example servers cannot reach for them |
+
+`launchctl bootstrap gui/$UID ~/Library/LaunchAgents/app.hindsight.agent.plist`
+registers it, and `launchctl bootout gui/$UID/app.hindsight.agent` removes it.
+Launch the app with `HINDSIGHT_CATALOG_PATH` set to the same catalog.
+
+One thing to expect: an unsigned build has no keychain access group, so every
+repository password read raises a system access prompt. Backups, restores and
+the recovery kit wait on it. Nothing freezes — that work is deliberately off
+the main actor and off the agent's actor — but the operation does not finish
+until you answer. A signed build with the shared access group does not prompt.
 
 ## Testing
 
