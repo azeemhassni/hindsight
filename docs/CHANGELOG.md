@@ -176,3 +176,16 @@
 - `make app` generates the Xcode project with XcodeGen, verifies the pinned
   binary digests, and embeds the agent, its job description and all six
   binaries in the bundle.
+
+## M13 — Second copy
+
+- `restic copy` into another disk, S3, Backblaze B2, or another rest-server,
+  initialised with `--copy-chunker-params` so the copy deduplicates against the
+  original instead of re-chunking it.
+- The copy keeps its own password: losing the Mac should not hand over the
+  second copy along with the first. Proven — the source password does not open
+  the copy.
+- Credentials travel in the environment and never reach a server, so a
+  compromised machine cannot touch the copy that outlives it.
+- Verified locally: every snapshot arrives, the copy passes its own integrity
+  check, and copying again adds nothing.
