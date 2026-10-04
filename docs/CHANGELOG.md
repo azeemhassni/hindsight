@@ -130,3 +130,18 @@
 - `scripts/coolify-testenv.sh` provisions the VM reproducibly; `make
   test-coolify` runs the suite deliberately, since the VM and the Docker
   environment contend when run together.
+
+## M11 — Restore
+
+- A planner that decides which modes are possible from facts, and explains
+  every mode whether or not it is available — naming the actual obstacle, not
+  a generic refusal. Only zero downtime ever carries a data-loss caveat.
+- The pre-restore safety snapshot, which is both the preview's baseline (restic
+  can diff two snapshots but not a snapshot against a live filesystem) and the
+  way back. Proven: restoring it returns exactly what the restore overwrote.
+- Hard exclusions by category with per-category opt-in, plus one rule with no
+  opt-in at all: a restore may never overwrite the key Hindsight logs in with.
+- Verified against the local container: a restore returns changed and deleted
+  files byte for byte with permissions intact, the staged swap completes in
+  well under a second, an alternate-path restore leaves the live copy alone,
+  and a plan that would cut off access is refused before anything is written.

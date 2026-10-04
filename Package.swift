@@ -15,6 +15,7 @@ let package = Package(
         .library(name: "HindsightProtocol", targets: ["HindsightProtocol"]),
         .library(name: "HindsightKeychain", targets: ["HindsightKeychain"]),
         .library(name: "HindsightCoolify", targets: ["HindsightCoolify"]),
+        .library(name: "HindsightRestore", targets: ["HindsightRestore"]),
         .executable(name: "hindsight-agent", targets: ["hindsight-agent"]),
     ],
     dependencies: [
@@ -51,6 +52,17 @@ let package = Package(
         .target(
             name: "HindsightSchedule",
             dependencies: ["HindsightCore"],
+            swiftSettings: .common
+        ),
+        .target(
+            name: "HindsightRestore",
+            dependencies: [
+                "HindsightCore",
+                "HindsightCoolify",
+                "HindsightProcess",
+                "HindsightRestic",
+                "HindsightSSH",
+            ],
             swiftSettings: .common
         ),
         .target(
@@ -92,6 +104,7 @@ let package = Package(
                 "HindsightCatalog",
                 "HindsightSchedule",
                 "HindsightCoolify",
+                "HindsightRestore",
             ],
             swiftSettings: .common
         ),
@@ -123,6 +136,11 @@ let package = Package(
         .testTarget(
             name: "HindsightCatalogTests",
             dependencies: ["HindsightCatalog"],
+            swiftSettings: .common
+        ),
+        .testTarget(
+            name: "HindsightRestoreTests",
+            dependencies: ["HindsightRestore", "HindsightTestSupport"],
             swiftSettings: .common
         ),
         .testTarget(
