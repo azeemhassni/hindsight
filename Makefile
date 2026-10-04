@@ -17,13 +17,14 @@ test:
 test-integration:
 	./scripts/testenv.sh up
 	set -a; eval "$$(./scripts/testenv.sh env)"; set +a; \
-		HINDSIGHT_ALLOW_DESTRUCTIVE_TESTS=1 $(SWIFT) test; \
+		HINDSIGHT_ALLOW_DESTRUCTIVE_TESTS=1 HINDSIGHT_REQUIRE_TEST_ENV=1 $(SWIFT) test; \
 		status=$$?; ./scripts/testenv.sh down; exit $$status
 
 test-coolify:
 	./scripts/coolify-testenv.sh up
 	@set -a; eval "$$(./scripts/testenv.sh env)"; eval "$$(./scripts/coolify-testenv.sh env)"; set +a; \
-		HINDSIGHT_TEST_COOLIFY=1 $(SWIFT) test --filter CoolifyIntegrationTests; \
+		HINDSIGHT_TEST_COOLIFY=1 HINDSIGHT_REQUIRE_COOLIFY_ENV=1 \
+			$(SWIFT) test --filter "CoolifyIntegrationTests|EnvironmentPresenceTests"; \
 		status=$$?; \
 		if [ $$status -ne 0 ]; then \
 			echo ""; \

@@ -3,6 +3,9 @@ name: hindsight-testenv
 services:
   sshd:
     build: ./sshd
+    # Survives a Docker engine restart. Without this the containers stay down
+    # and the integration tests quietly skip, which looks like a pass.
+    restart: unless-stopped
     environment:
       HINDSIGHT_TEST_PUBKEY: ${HINDSIGHT_TEST_PUBKEY:?run scripts/testenv.sh up}
     ports:
@@ -15,6 +18,7 @@ services:
 
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_PASSWORD: pg-test-pw-8f2a
       POSTGRES_USER: hindsight
@@ -29,6 +33,7 @@ services:
 
   mysql:
     image: mysql:8.4
+    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: my-test-pw-3c7d
       MYSQL_DATABASE: hindsight_test

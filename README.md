@@ -41,6 +41,10 @@ build is unsigned and cannot register the background agent.
 | `make test-integration` | Starts the Docker environment, runs the suite, tears it down |
 | `make test-coolify` | Provisions a Coolify VM and runs the Coolify suite |
 
+`make test-integration` and `make test-coolify` fail if their environment is
+not actually up, rather than skipping every test and reporting success — a
+skipped test and a passing one look identical in a summary line.
+
 Restore and write tests only ever touch local targets. The guard is in the
 code, not the convention: a destructive operation in a test requires both a
 local address **and** the file `/etc/hindsight-test-target` on the target, and

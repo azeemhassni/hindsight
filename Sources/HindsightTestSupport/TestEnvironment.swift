@@ -204,6 +204,21 @@ public enum CoolifyTestEnvironment {
         return value
     }
 
+    public static var port: Int {
+        ProcessInfo.processInfo.environment["HINDSIGHT_TEST_COOLIFY_PORT"]
+            .flatMap(Int.init) ?? 22
+    }
+
+    /// OrbStack addresses a machine through the ssh user, as `<user>@<machine>`.
+    public static var user: String {
+        ProcessInfo.processInfo.environment["HINDSIGHT_TEST_COOLIFY_USER"] ?? "root"
+    }
+
+    public static var keyPath: String? {
+        ProcessInfo.processInfo.environment["HINDSIGHT_TEST_COOLIFY_KEY"]
+            ?? TestEnvironment.keyPath
+    }
+
     /// Requires an explicit opt-in, and a virtual machine that actually answers.
     ///
     /// The virtual machine and the Docker environment share one hypervisor, and
@@ -216,10 +231,12 @@ public enum CoolifyTestEnvironment {
     /// fail as though Hindsight were broken.
     public static var isAvailable: Bool {
         guard ProcessInfo.processInfo.environment["HINDSIGHT_TEST_COOLIFY"] == "1" else { return false }
-        guard let host, TestEnvironment.keyPath != nil else { return false }
+        guard let host, let key = keyPath, FileManager.default.fileExists(atPath: key) else {
+            return false
+        }
         // The same rule as everywhere else: a private address only.
         guard NetworkPolicy.isLocalTestAddress(host) else { return false }
-        return TestEnvironment.canReach(host: host, port: 22)
+        return TestEnvironment.canReach(host: host, port: port)
     }
 
     public static var hasToken: Bool { isAvailable && token != nil }
@@ -228,9 +245,9 @@ public enum CoolifyTestEnvironment {
         SSHDestination(
             serverID: try ServerID(validating: id),
             host: host ?? "127.0.0.1",
-            port: 22,
-            user: "root",
-            identityFile: TestEnvironment.keyPath ?? "",
+            port: port,
+            user: user,
+            identityFile: keyPath ?? "",
             privilege: .root
         )
     }

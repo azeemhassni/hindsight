@@ -276,11 +276,25 @@ should be revisited.
 
 Honest gaps, to be closed before the features that depend on them:
 
-- **Application and service resources.** Only a database resource was deployed.
-  Applications build from a git repository, which needs network and minutes;
-  their labels are expected to follow the same shape (`coolify.type=application`,
-  `coolify.applicationId=<numeric>`, identity via the compose project) but that
-  is inference from the database case plus the source, not observation.
+- **Application and service resources.** Only a database resource was
+  deployed, so application labels are inferred from the database case plus
+  Coolify's source — `coolify.type=application`,
+  `coolify.applicationId=<numeric>`, identity via the compose project — and not
+  observed.
+
+  An attempt to close this failed for a reason worth recording: deploying an
+  application needs the `localhost` server to have a private key, and this
+  install has none, because the first user was created through `artisan`
+  instead of Coolify's web onboarding, which is what generates it. The
+  deployment fails inside Coolify with
+  `Call to a member function storeInFileSystem() on null`.
+
+  To finish this verification, complete Coolify's web onboarding in the VM
+  first (`http://<vm>:8000`), then deploy a Docker-image application through
+  the API — `POST /applications/dockerimage` works and needs no git build.
+  Creating the key row directly in Coolify's database was deliberately not
+  done: its `private_key` column is encrypted with `APP_KEY`, and writing
+  Coolify's private schema is exactly what Hindsight refuses to do elsewhere.
 - **Restoring a Coolify instance** end to end into a fresh VM.
 - Whether `coolify-proxy` is absent until a resource needs it: it was running
   here after the first deploy, but a brand-new install may not have it.

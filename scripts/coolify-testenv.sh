@@ -17,8 +17,16 @@ key="$root/testenv/.keys/id_ed25519"
 
 vm() { orbctl run -m "$machine" sudo bash -lc "$1"; }
 
-machine_ip() {
-  orbctl info "$machine" 2>/dev/null | awk '/^IPv4:/ { print $2; exit }'
+# OrbStack's own SSH endpoint on loopback, rather than the machine's private
+# address. The address route drops when OrbStack's machine networking hiccups,
+# and 127.0.0.1 is both stable and unambiguously local to the safety guard.
+orb_ssh_port() {
+  awk '/^Host orb$/ { found = 1 } found && /^[[:space:]]*Port/ { print $2; exit }' \
+    "$HOME/.orbstack/ssh/config" 2>/dev/null
+}
+
+orb_ssh_key() {
+  echo "$HOME/.orbstack/ssh/id_ed25519"
 }
 
 case "${1:-up}" in
@@ -61,14 +69,21 @@ case "${1:-up}" in
       \$s = App\Models\InstanceSettings::first(); \$s->is_api_enabled = true; \$s->save();
     "' >/dev/null 2>&1 || true
 
-    echo "Coolify ready at http://$(machine_ip):8000"
+    echo "Coolify ready"
     "$0" env
     ;;
 
   env)
     # Quoted: a Sanctum token contains a pipe, which an unquoted eval would
     # treat as a shell pipeline.
-    echo "export HINDSIGHT_TEST_COOLIFY_HOST='$(machine_ip)'"
+    #
+    # The VM is reached through OrbStack's SSH endpoint on loopback. The user is
+    # OrbStack's `<user>@<machine>` syntax, so this is a real ssh connection to
+    # a real sshd, over an address the safety guard accepts without argument.
+    echo "export HINDSIGHT_TEST_COOLIFY_HOST='127.0.0.1'"
+    echo "export HINDSIGHT_TEST_COOLIFY_PORT='$(orb_ssh_port)'"
+    echo "export HINDSIGHT_TEST_COOLIFY_USER='root@coolify'"
+    echo "export HINDSIGHT_TEST_COOLIFY_KEY='$(orb_ssh_key)'"
     echo "export HINDSIGHT_TEST_SSH_KEY='$key'"
     if [[ -f "$root/testenv/.keys/coolify-token" ]]; then
       echo "export HINDSIGHT_TEST_COOLIFY_TOKEN='$(cat "$root/testenv/.keys/coolify-token")'"
