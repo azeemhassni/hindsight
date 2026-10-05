@@ -220,14 +220,28 @@ public enum CatalogSchema {
             }
         }
 
-        // Events whose job is gone: a job's history is worthless without the
-        // job, and leaving them in means every later migration's reference
-        // check fails on them.
-        migrator.registerMigration("v4-orphaned-job-events") { database in
-            try database.execute(sql: """
-                DELETE FROM jobEvent
-                WHERE jobId NOT IN (SELECT id FROM job)
-                """)
+        // Rows whose parent is gone — written by a build that did not enforce
+        // references, or by a repair run through the sqlite3 command line,
+        // which does not enforce them either. Nothing in the app can reach
+        // such a row, and leaving one in means every later migration fails its
+        // reference check: a catalog that will not open is an agent that will
+        // not start.
+        migrator.registerMigration("v4-orphaned-rows") { database in
+            // Deleting a row cascades to its own children, which can expose
+            // more orphans, so this repeats until the check comes back clean.
+            for _ in 0 ..< 8 {
+                let violations = try Row.fetchAll(database, sql: "PRAGMA foreign_key_check")
+                if violations.isEmpty { break }
+                for violation in violations {
+                    guard let table: String = violation["table"],
+                          let rowID: Int64 = violation["rowid"]
+                    else { continue }
+                    try database.execute(
+                        sql: "DELETE FROM \"\(table)\" WHERE rowid = ?",
+                        arguments: [rowID]
+                    )
+                }
+            }
         }
 
         return migrator

@@ -125,15 +125,27 @@ struct CatalogMigrationTests {
                 VALUES ('gone', 1, '2026-10-04 15:45:44.080', 'error', 'restic is not here')
                 """
             )
+            try database.execute(
+                sql: """
+                INSERT INTO repository (id, serverId, path, createdAt, checkRotationIndex, checkRotationDivisor)
+                VALUES ('repo-gone', 'gone', '/tmp/gone', '2026-10-04 15:44:01.648', 0, 4)
+                """
+            )
         }
 
         let catalog = try Catalog.open(at: url)
         let applied = try catalog.read { try CatalogSchema.migrator.appliedMigrations($0) }
         #expect(applied == CatalogSchema.migrator.migrations)
-        let remaining = try catalog.read { database in
-            try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM jobEvent") ?? -1
+        let (events, repositories, violations) = try catalog.read { database in
+            (
+                try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM jobEvent") ?? -1,
+                try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM repository") ?? -1,
+                try Row.fetchAll(database, sql: "PRAGMA foreign_key_check").count
+            )
         }
-        #expect(remaining == 0)
+        #expect(events == 0)
+        #expect(repositories == 0)
+        #expect(violations == 0)
     }
 
     @Test("enforces foreign keys so an orphaned row cannot be written")
