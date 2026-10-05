@@ -209,10 +209,25 @@ public enum CatalogSchema {
             }
         }
 
-        migrator.registerMigration("v3-pause") { database in
+        // Adding a column cannot break a reference, so this asks for
+        // per-statement checks rather than the whole-database scan GRDB
+        // otherwise runs at the end of a migration. That scan fails on rows
+        // left behind by an earlier build, and a migration that cannot finish
+        // is an agent that cannot start.
+        migrator.registerMigration("v3-pause", foreignKeyChecks: .immediate) { database in
             try database.alter(table: "server") { table in
                 table.add(column: "pausedAt", .datetime)
             }
+        }
+
+        // Events whose job is gone: a job's history is worthless without the
+        // job, and leaving them in means every later migration's reference
+        // check fails on them.
+        migrator.registerMigration("v4-orphaned-job-events") { database in
+            try database.execute(sql: """
+                DELETE FROM jobEvent
+                WHERE jobId NOT IN (SELECT id FROM job)
+                """)
         }
 
         return migrator

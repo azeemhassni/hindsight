@@ -101,6 +101,41 @@ struct CatalogMigrationTests {
         #expect(throws: CatalogError.self) { try Catalog.open(at: url) }
     }
 
+    @Test("opens a catalog holding rows orphaned by an older build")
+    func migratesPastOrphanedEvents() throws {
+        let url = temporaryCatalogURL()
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        // A catalog as an earlier build left it: migrated as far as v2, with a
+        // job's events still in it after the job itself went away. Written with
+        // references off, which is how they got there — a hand-run DELETE, or a
+        // build before the catalog enforced them.
+        let pool = try DatabasePool(path: url.path, configuration: Catalog.configuration())
+        try CatalogSchema.migrator.migrate(pool)
+        try pool.writeWithoutTransaction { database in
+            try database.execute(sql: "DELETE FROM grdb_migrations WHERE identifier LIKE 'v3%' OR identifier LIKE 'v4%'")
+            try database.execute(sql: "ALTER TABLE server DROP COLUMN pausedAt")
+            try database.execute(sql: "PRAGMA foreign_keys = OFF")
+            try database.execute(
+                sql: """
+                INSERT INTO jobEvent (jobId, sequence, at, level, message)
+                VALUES ('gone', 1, '2026-10-04 15:45:44.080', 'error', 'restic is not here')
+                """
+            )
+        }
+
+        let catalog = try Catalog.open(at: url)
+        let applied = try catalog.read { try CatalogSchema.migrator.appliedMigrations($0) }
+        #expect(applied == CatalogSchema.migrator.migrations)
+        let remaining = try catalog.read { database in
+            try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM jobEvent") ?? -1
+        }
+        #expect(remaining == 0)
+    }
+
     @Test("enforces foreign keys so an orphaned row cannot be written")
     func enforcesForeignKeys() throws {
         let catalog = try Catalog.inMemory()

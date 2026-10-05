@@ -58,6 +58,10 @@ extension Catalog {
         try read { try RepositoryRecord.fetchOne($0, key: id) }
     }
 
+    public func repositories() throws -> [RepositoryRecord] {
+        try read { try RepositoryRecord.fetchAll($0) }
+    }
+
     // MARK: Policies
 
     public func save(_ schedule: ScheduleRecord) throws {
