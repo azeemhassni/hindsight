@@ -584,6 +584,11 @@ public struct RunningJob: Codable, Sendable, Hashable {
     public var percentDone: Double?
     public var bytesDone: Int64?
     public var totalBytes: Int64?
+    /// Which part of the run this is: copying files is one phase of several,
+    /// and its percentage says nothing about the ones after it.
+    public var phase: String?
+    /// The latest line of detail, such as which database is being dumped.
+    public var detail: String?
 
     public init(
         id: String,
@@ -592,7 +597,9 @@ public struct RunningJob: Codable, Sendable, Hashable {
         startedAt: Date,
         percentDone: Double? = nil,
         bytesDone: Int64? = nil,
-        totalBytes: Int64? = nil
+        totalBytes: Int64? = nil,
+        phase: String? = nil,
+        detail: String? = nil
     ) {
         self.id = id
         self.serverID = serverID
@@ -601,7 +608,29 @@ public struct RunningJob: Codable, Sendable, Hashable {
         self.percentDone = percentDone
         self.bytesDone = bytesDone
         self.totalBytes = totalBytes
+        self.phase = phase
+        self.detail = detail
     }
+
+    /// What to call this phase in the window.
+    public var phaseLabel: String {
+        switch phase {
+        case "preparing": "Preparing"
+        case "connecting": "Connecting"
+        case "verifyingBinary": "Checking the server's copy of restic"
+        case "startingServer", "openingTunnel": "Opening the transfer channel"
+        case "collectingMetadata": "Recording what this server is"
+        case "backingUp": "Copying files"
+        case "dumpingDatabases": "Dumping databases"
+        case "recording": "Recording the snapshot"
+        case "finishing": "Finishing"
+        default: "Backing up"
+        }
+    }
+
+    /// Only the file copy has a meaningful percentage. Showing one for the
+    /// phases after it is how a backup sat at 100% for hours.
+    public var showsPercentage: Bool { phase == "backingUp" || phase == nil }
 }
 
 public enum AgentEvent: Codable, Sendable, Hashable {

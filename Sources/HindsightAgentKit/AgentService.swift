@@ -626,12 +626,35 @@ public actor AgentCore {
         try? catalog.trimEvents(for: job.id, keeping: 2000)
     }
 
+    /// Changes what the window is told about a job that is still going.
+    private func updateRunning(
+        job: QueuedJob,
+        server: Server,
+        _ change: (inout RunningJob) -> Void
+    ) {
+        var current = running[job.id.value] ?? RunningJob(
+            id: job.id.value,
+            serverID: server.id.value,
+            kind: "backup",
+            startedAt: Date()
+        )
+        change(&current)
+        running[job.id.value] = current
+        emit(.jobProgress(current))
+    }
+
     private func apply(_ event: BackupEvent, to job: QueuedJob, server: Server) async {
         switch event {
         case let .phase(phase):
             try? catalog.append("phase: \(phase.rawValue)", to: job.id)
+            updateRunning(job: job, server: server) {
+                $0.phase = phase.rawValue
+                // The detail belonged to the phase that just ended.
+                $0.detail = nil
+            }
         case let .message(text):
             try? catalog.append(text, to: job.id)
+            updateRunning(job: job, server: server) { $0.detail = text }
         case let .warning(text):
             try? catalog.append(text, level: .warning, to: job.id)
         case let .progress(progress):

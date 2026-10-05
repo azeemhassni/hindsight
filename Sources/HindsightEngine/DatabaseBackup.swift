@@ -38,7 +38,10 @@ public struct DatabaseBackup: Sendable {
         on destination: SSHDestination,
         hasBash: Bool,
         priorityPrefix: [String] = [],
-        timeout: Duration = .seconds(3600)
+        // Fifteen minutes, not an hour. A database that does not answer —
+        // waiting on a password prompt, a container that is wedged — used to
+        // hold the whole backup behind it, one hour per database.
+        timeout: Duration = .seconds(900)
     ) async throws -> DatabaseDumpResult {
         var resolved = target
         resolved.databaseName = database ?? target.databaseName
@@ -136,7 +139,8 @@ public struct DatabaseBackup: Sendable {
     public func listDatabases(
         for target: DatabaseTarget,
         databasePassword: Secret? = nil,
-        on destination: SSHDestination
+        on destination: SSHDestination,
+        timeout: Duration = .seconds(120)
     ) async throws -> [String] {
         guard let command = DatabaseDumpCommand.listDatabasesCommand(for: target) else { return [] }
         var secrets: [String: Secret] = [:]
@@ -151,7 +155,8 @@ public struct DatabaseBackup: Sendable {
                 requiresRoot: true
             ),
             on: destination,
-            allowedExitCodes: Set((0...255).map(Int32.init))
+            allowedExitCodes: Set((0...255).map(Int32.init)),
+            timeout: timeout
         )
 
         guard result.exit.terminationStatus == 0 else { return [] }

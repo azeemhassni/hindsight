@@ -120,13 +120,31 @@ struct RunningJobCard: View {
         GroupBox {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("Backing up").font(.headline)
+                    Text(job.phaseLabel).font(.headline)
                     Spacer()
-                    Text(Format.percent(job.percentDone)).monospacedDigit()
+                    if job.showsPercentage {
+                        Text(Format.percent(job.percentDone)).monospacedDigit()
+                    }
                 }
-                ProgressView(value: job.percentDone ?? 0)
+                if job.showsPercentage {
+                    ProgressView(value: job.percentDone ?? 0)
+                } else {
+                    // Nothing to measure in this phase, and a bar left at 100%
+                    // reads as "finished" when it is not.
+                    ProgressView().progressViewStyle(.linear)
+                }
+                if let detail = job.detail {
+                    Text(detail)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
                 HStack(spacing: 16) {
-                    Text("\(Format.bytes(job.bytesDone)) of \(Format.bytes(job.totalBytes))")
+                    if job.showsPercentage {
+                        Text("\(Format.bytes(job.bytesDone)) of \(Format.bytes(job.totalBytes))")
+                    } else {
+                        Text("\(Format.bytes(job.bytesDone)) of files read")
+                    }
                     Text("started \(Format.age(of: job.startedAt))")
                 }
                 .font(.caption)
@@ -137,8 +155,10 @@ struct RunningJobCard: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            "Backup in progress, \(Format.percent(job.percentDone)) done, "
-                + "\(Format.bytes(job.bytesDone)) of \(Format.bytes(job.totalBytes))."
+            job.showsPercentage
+                ? "\(job.phaseLabel), \(Format.percent(job.percentDone)) done, "
+                    + "\(Format.bytes(job.bytesDone)) of \(Format.bytes(job.totalBytes))."
+                : "\(job.phaseLabel). \(job.detail ?? "")"
         )
     }
 }

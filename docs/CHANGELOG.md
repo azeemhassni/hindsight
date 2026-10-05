@@ -436,3 +436,25 @@ instruction than pausing was.
 Also fixed: a finished backup's counts — bytes processed, bytes added, files new
 and changed — were measured by the engine and then thrown away, so every run in
 the history showed no size at all.
+
+## A backup that says what it is doing
+
+A real backup of an 18 GB production server sat at 100% for four hours with
+"Not backed up yet" beside it. Three separate faults, all in the reporting
+rather than the backing up:
+
+- **The percentage belonged to one phase.** It measures reading files, which is
+  the first of several; database dumps come after it. The bar hit 100% and
+  stayed there through everything that followed. A run now says which phase it
+  is in — "Dumping databases" — and shows a percentage only for the phase that
+  has one.
+- **Snapshots were recorded only at the very end.** The files were in the
+  repository and restic had written their snapshot, but the window said "no
+  snapshots yet" because the job had not finished. The filesystem snapshot is
+  recorded as soon as it exists, so a dump that hangs no longer hides a backup
+  that worked.
+- **A database that does not answer held the whole backup.** Each dump had an
+  hour's timeout and enumerating a database had none, so one wedged container
+  could stall a backup all afternoon. Dumps now time out after fifteen minutes,
+  listing after two, and each one announces itself first — "Dumping coolify-db
+  (3 of 11)…" — so a run that stops moving says what it is waiting on.

@@ -184,6 +184,14 @@ public struct BackupEngine: Sendable {
                     let summary = backup.summary
                     sessionWarnings += backup.warnings
 
+                    // Recorded here, not after the dumps: the files are in the
+                    // repository and restic has written their snapshot, so the
+                    // timeline should show it even if a dump later hangs.
+                    if let id = summary.snapshotID,
+                       let written = try? await local.snapshots().first(where: { $0.id == id }) {
+                        emit(.snapshotCreated(written.toSnapshot(kind: .filesystem)))
+                    }
+
                     var dumps: [DatabaseDumpResult] = []
                     if plan.includeDatabaseDumps {
                         emit(.phase(.dumpingDatabases))
@@ -279,7 +287,12 @@ public struct BackupEngine: Sendable {
         emit(.message("Found \(targets.count) database(s) to dump."))
 
         var results: [DatabaseDumpResult] = []
-        for target in targets {
+        for (index, target) in targets.enumerated() {
+            // Named before it starts, so a backup that stops moving says what
+            // it is waiting on rather than only that it is dumping something.
+            emit(.message(
+                "Dumping \(target.displayName) (\(index + 1) of \(targets.count))…"
+            ))
             let password = plan.databaseCredentials[target.identifier]
             let databases = (try? await backup.listDatabases(
                 for: target,

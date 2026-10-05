@@ -62,12 +62,21 @@ struct ServerRow: View {
                     .lineLimit(1)
                 if let job {
                     HStack(spacing: 6) {
-                        ProgressView(value: job.percentDone ?? 0)
-                            .progressViewStyle(.linear)
-                            .frame(maxWidth: 70)
-                        Text(Format.percent(job.percentDone))
-                            .font(.caption)
-                            .monospacedDigit()
+                        if job.showsPercentage {
+                            ProgressView(value: job.percentDone ?? 0)
+                                .progressViewStyle(.linear)
+                                .frame(maxWidth: 70)
+                            Text(Format.percent(job.percentDone))
+                                .font(.caption)
+                                .monospacedDigit()
+                        } else {
+                            ProgressView()
+                                .progressViewStyle(.linear)
+                                .frame(maxWidth: 70)
+                            Text(job.phaseLabel)
+                                .font(.caption)
+                                .lineLimit(1)
+                        }
                     }
                 } else {
                     HStack(spacing: 5) {
