@@ -166,6 +166,18 @@ public struct RootView: View {
             }
             ToolbarItem {
                 Menu {
+                    Button(
+                        server.isPaused ? "Resume backups" : "Pause backups",
+                        systemImage: server.isPaused ? "play.circle" : "pause.circle"
+                    ) {
+                        Task { await model.setPaused(!server.isPaused, serverID: server.id) }
+                    }
+                    .help(
+                        server.isPaused
+                            ? "Let this server's schedule run again"
+                            : "Stop scheduled backups for this server until you resume them"
+                    )
+                    Divider()
                     Button("Check integrity now", systemImage: "checkmark.seal") {
                         Task { await model.checkIntegrity(serverID: server.id) }
                     }
@@ -216,6 +228,11 @@ public struct RootView: View {
     private var detailContent: some View {
         if let server = model.selectedServer {
             VStack(spacing: 0) {
+                if server.isPaused {
+                    PausedBanner(serverName: server.name) {
+                        Task { await model.setPaused(false, serverID: server.id) }
+                    }
+                }
                 if !recoveryKits.wasExported(forServer: server.id) {
                     RecoveryKitBanner(serverName: server.name) {
                         saveRecoveryKit(forServer: server.id)
@@ -373,6 +390,32 @@ public struct RootView: View {
                 recoveryKits.markExported(forServer: id)
             }
         }
+    }
+}
+
+/// Shown while a server's schedule is stopped.
+///
+/// Prominent on purpose: a server that is not being backed up should never be
+/// quietly indistinguishable from one that is.
+struct PausedBanner: View {
+    let serverName: String
+    let onResume: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "pause.circle.fill")
+                .accessibilityHidden(true)
+            Text("Backups of \(serverName) are paused. Nothing is being backed up.")
+                .font(.callout)
+                .lineLimit(2)
+            Spacer(minLength: 8)
+            Button("Resume", action: onResume)
+                .help("Let this server's schedule run again")
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.22))
+        .accessibilityElement(children: .combine)
     }
 }
 

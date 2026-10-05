@@ -72,6 +72,12 @@ public struct Server: Identifiable, Hashable, Sendable, Codable {
     /// until a server has been reached at least once.
     public var platform: Platform?
     public var coolifyVersion: String?
+    /// When backups were paused, or nil while they are running.
+    ///
+    /// A pause stops the schedule only. Maintenance still keeps the repository
+    /// healthy, and "Back up now" still works: someone pressing it has said
+    /// what they want more recently than whoever paused.
+    public var pausedAt: Date?
 
     public init(
         id: ServerID,
@@ -80,7 +86,8 @@ public struct Server: Identifiable, Hashable, Sendable, Codable {
         authentication: SSHAuthentication,
         privilege: Privilege,
         platform: Platform? = nil,
-        coolifyVersion: String? = nil
+        coolifyVersion: String? = nil,
+        pausedAt: Date? = nil
     ) throws {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { throw ValidationError.emptyServerName }
         self.id = id
@@ -90,7 +97,9 @@ public struct Server: Identifiable, Hashable, Sendable, Codable {
         self.privilege = privilege
         self.platform = platform
         self.coolifyVersion = coolifyVersion
+        self.pausedAt = pausedAt
     }
 
     public var isCoolifyServer: Bool { coolifyVersion != nil }
+    public var isPaused: Bool { pausedAt != nil }
 }

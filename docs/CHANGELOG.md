@@ -408,3 +408,31 @@ server, the digest pin stands exactly as it did; there are tests for each case.
 `make notarize` builds, verifies, submits, waits, staples and asks Gatekeeper
 for its verdict. It reuses any notarytool keychain profile on the machine, so
 the password is not asked for again.
+
+## Touch ID before a restore, and pausing a server
+
+**A restore now asks who you are.** It is the only thing Hindsight does that
+writes to a production server, so it takes two independent things to start one:
+the server's hostname, typed out, and a token the agent issued moments earlier.
+The app only gets a token after Touch ID — or the login password on a Mac
+without a sensor, so a finger that will not read never locks someone out of
+their own restore. The prompt names what is about to happen ("restore
+/etc/nginx/nginx.conf to web-01.example.com") rather than saying "authenticate",
+because a dialog that says nothing is one people approve without reading.
+
+The token is single-use and lasts two minutes: one authentication must not
+become a standing permission to overwrite a server. The agent checks it in the
+process that does the writing, not in the app that asks. A preview needs none —
+it changes nothing on the server.
+
+**Pausing.** A server can be paused from its own menu, and then no scheduled
+backup runs for it until it is resumed. The schedule itself is untouched, so
+resuming brings back exactly what was there rather than a default; the sidebar
+row and a banner in the server's view both say so, because a server that is not
+being backed up should never look like one that is. Maintenance still keeps the
+repository healthy, and "Back up now" still works: pressing it is a more recent
+instruction than pausing was.
+
+Also fixed: a finished backup's counts — bytes processed, bytes added, files new
+and changed — were measured by the engine and then thrown away, so every run in
+the history showed no size at all.

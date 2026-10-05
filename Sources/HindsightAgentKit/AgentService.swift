@@ -71,6 +71,12 @@ public actor AgentCore {
     /// Nothing is running them any more, so leaving them `running` would show a
     /// backup in progress for ever — and the interface would be right to
     /// believe the catalog.
+    /// How many entries the scheduler holds. Used by tests to prove a paused
+    /// server contributes none.
+    func scheduledEntryCountForTesting() async -> Int {
+        await scheduler.statuses().count
+    }
+
     func reconcileInterruptedJobs() {
         guard let active = try? catalog.activeJobs() else { return }
         for var job in active {
@@ -167,6 +173,15 @@ public actor AgentCore {
         case let .cancelJob(jobID):
             _ = jobID
             await queue.cancelAll()
+            return .done
+
+        case let .setPaused(serverID, paused):
+            guard let id = try? ServerID(validating: serverID),
+                  (try? catalog.setPaused(paused, forServer: id)) == true
+            else { return .failed(message: "No server with id \(serverID).") }
+            // Applied at once rather than at the next sweep: pausing is what
+            // someone does when a backup must not start now.
+            await reloadSchedules()
             return .done
 
         case .reloadSchedules:
@@ -335,9 +350,12 @@ public actor AgentCore {
                 name: server.name,
                 health: Self.health(lastBackupAt: lastBackup, lastCheckPassed: lastCheck?.outcome == .passed),
                 lastBackupAt: lastBackup,
-                nextBackupAt: schedule?.decision.nextFireDate,
-                scheduleExplanation: schedule?.decision.explanation ?? "No schedule.",
-                lastCheckPassed: lastCheck.map { $0.outcome == .passed }
+                nextBackupAt: server.isPaused ? nil : schedule?.decision.nextFireDate,
+                scheduleExplanation: server.isPaused
+                    ? "Paused. Scheduled backups will not run until you resume them."
+                    : (schedule?.decision.explanation ?? "No schedule."),
+                lastCheckPassed: lastCheck.map { $0.outcome == .passed },
+                pausedAt: server.pausedAt
             )
         }
 
@@ -359,6 +377,9 @@ public actor AgentCore {
         guard let servers = try? catalog.servers() else { return }
         var entries: [ScheduledEntry] = []
         for server in servers {
+            // A paused server contributes no entries at all, so nothing can
+            // fire for it until it is resumed.
+            guard !server.isPaused else { continue }
             guard let repository = try? catalog.repository(forServer: server.id) else { continue }
             guard let records = try? catalog.schedules(forServer: server.id) else { continue }
             for record in records where record.enabled {

@@ -24,6 +24,8 @@ public enum AgentRequest: Codable, Sendable, Hashable {
     case backUpNow(serverID: String)
     case cancelJob(jobID: String)
     case reloadSchedules
+    /// Stops or restarts scheduled backups for one server.
+    case setPaused(serverID: String, paused: Bool)
     case runMaintenance(serverID: String)
     case checkIntegrity(serverID: String)
     /// Works out exactly what a restore would change, without changing it.
@@ -548,6 +550,8 @@ public struct ServerStatus: Codable, Sendable, Hashable {
     public var nextBackupAt: Date?
     public var scheduleExplanation: String
     public var lastCheckPassed: Bool?
+    /// When scheduled backups were paused, or nil while they run.
+    public var pausedAt: Date?
 
     public init(
         id: String,
@@ -556,7 +560,8 @@ public struct ServerStatus: Codable, Sendable, Hashable {
         lastBackupAt: Date?,
         nextBackupAt: Date?,
         scheduleExplanation: String,
-        lastCheckPassed: Bool?
+        lastCheckPassed: Bool?,
+        pausedAt: Date? = nil
     ) {
         self.id = id
         self.name = name
@@ -565,7 +570,10 @@ public struct ServerStatus: Codable, Sendable, Hashable {
         self.nextBackupAt = nextBackupAt
         self.scheduleExplanation = scheduleExplanation
         self.lastCheckPassed = lastCheckPassed
+        self.pausedAt = pausedAt
     }
+
+    public var isPaused: Bool { pausedAt != nil }
 }
 
 public struct RunningJob: Codable, Sendable, Hashable {

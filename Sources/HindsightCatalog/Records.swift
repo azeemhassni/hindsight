@@ -20,6 +20,7 @@ public struct ServerRecord: Codable, FetchableRecord, PersistableRecord, Hashabl
     public var coolifyVersion: String?
     public var createdAt: Date
     public var lastSeenAt: Date?
+    public var pausedAt: Date?
 
     public init(server: Server, createdAt: Date = Date(), lastSeenAt: Date? = nil) {
         id = server.id.value
@@ -33,6 +34,7 @@ public struct ServerRecord: Codable, FetchableRecord, PersistableRecord, Hashabl
         coolifyVersion = server.coolifyVersion
         self.createdAt = createdAt
         self.lastSeenAt = lastSeenAt
+        pausedAt = server.pausedAt
     }
 
     public func toServer() throws -> Server {
@@ -43,7 +45,8 @@ public struct ServerRecord: Codable, FetchableRecord, PersistableRecord, Hashabl
             authentication: authentication,
             privilege: privilege,
             platform: platform,
-            coolifyVersion: coolifyVersion
+            coolifyVersion: coolifyVersion,
+            pausedAt: pausedAt
         )
     }
 }

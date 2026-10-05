@@ -70,9 +70,19 @@ struct ServerRow: View {
                             .monospacedDigit()
                     }
                 } else {
-                    Text(Format.age(of: server.lastBackupAt))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 5) {
+                        if server.isPaused {
+                            Image(systemName: "pause.circle.fill")
+                                .accessibilityHidden(true)
+                        }
+                        Text(
+                            server.isPaused
+                                ? "Paused"
+                                : Format.age(of: server.lastBackupAt)
+                        )
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
             Spacer(minLength: 0)
@@ -93,6 +103,9 @@ struct ServerRow: View {
 
     private var accessibilityLabel: String {
         var parts = [server.name, server.health.accessibilityDescription]
+        if server.isPaused {
+            parts.append("Backups are paused.")
+        }
         if let job {
             // A running job with no progress yet reads as "Backing up." rather
             // than "Backing up, — done.", which is what the dash renders as.

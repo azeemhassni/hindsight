@@ -209,6 +209,12 @@ public enum CatalogSchema {
             }
         }
 
+        migrator.registerMigration("v3-pause") { database in
+            try database.alter(table: "server") { table in
+                table.add(column: "pausedAt", .datetime)
+            }
+        }
+
         return migrator
     }
 }

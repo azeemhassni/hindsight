@@ -239,6 +239,27 @@ public final class AppModel {
         }
     }
 
+    /// Stops or restarts scheduled backups for one server.
+    @discardableResult
+    public func setPaused(_ paused: Bool, serverID: String) async -> Bool {
+        guard let send else { return false }
+        switch await send(.setPaused(serverID: serverID, paused: paused)) {
+        case .done:
+            note(
+                paused
+                    ? "Paused scheduled backups for \(serverID)."
+                    : "Resumed scheduled backups for \(serverID)."
+            )
+            await refresh()
+            return true
+        case let .failed(message):
+            lastError = message
+            return false
+        default:
+            return false
+        }
+    }
+
     public func runMaintenance(serverID: String) async {
         guard let send else { return }
         if case let .failed(message) = await send(.runMaintenance(serverID: serverID)) {

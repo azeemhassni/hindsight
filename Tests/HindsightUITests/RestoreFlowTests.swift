@@ -7,11 +7,17 @@ import Testing
 @Suite("Restore flow")
 struct RestoreFlowTests {
     private func makeFlow(
+        presence: any UserPresenceCheck = StubPresence(.confirmed),
         reply: @escaping @MainActor (AgentRequest) async -> AgentResponse?
     ) -> (RestoreFlow, AppModel) {
         let model = AppModel()
         model.send = reply
-        let flow = RestoreFlow(model: model, serverID: "web-01", serverHostname: "web-01.example.com")
+        let flow = RestoreFlow(
+            model: model,
+            serverID: "web-01",
+            serverHostname: "web-01.example.com",
+            presence: presence
+        )
         flow.snapshotID = "aa11bb22"
         flow.paths = ["/srv/app"]
         return (flow, model)
@@ -100,9 +106,14 @@ struct RestoreFlowTests {
     @Test("sends the restore once everything lines up")
     func runsWhenConfirmed() async {
         let requests = Captured()
-        let (flow, _) = makeFlow { request in
+        let (flow, _) = makeFlow(presence: StubPresence(.confirmed)) { request in
             switch request {
             case .previewRestore: return .restorePreview(report)
+            case .authorizeRestore:
+                return .restoreAuthorization(
+                    token: "token-123",
+                    expiresAt: Date().addingTimeInterval(120)
+                )
             case .runRestore:
                 await requests.record("run")
                 return .accepted(jobID: "job-1")

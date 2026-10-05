@@ -468,3 +468,23 @@ extension CatalogReader {
         }
     }
 }
+
+extension Catalog {
+    /// Pauses or resumes a server's scheduled backups.
+    ///
+    /// Stored on the server rather than by disabling its schedules, so resuming
+    /// restores exactly the schedule that was there — and so the interface can
+    /// say "paused" rather than "no schedule", which is a different thing and
+    /// looks like a mistake.
+    @discardableResult
+    public func setPaused(
+        _ paused: Bool,
+        forServer id: ServerID,
+        at date: Date = Date()
+    ) throws -> Bool {
+        guard var found = try server(id) else { return false }
+        found.pausedAt = paused ? (found.pausedAt ?? date) : nil
+        try save(found)
+        return true
+    }
+}
