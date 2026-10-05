@@ -96,6 +96,12 @@ public struct MaintenanceEngine: Sendable {
                 try ensureEnoughSpaceToPrune(at: repositoryPath)
             }
 
+            // Our own file lock is held, so no other Hindsight operation is
+            // using this repository: a restic lock still in it belongs to a run
+            // that died. Clearing it is what keeps one interrupted backup from
+            // failing every prune afterwards with "unable to create lock".
+            try? await client.unlock(removeAll: true)
+
             let groups = try await client.forget(
                 policy: policy,
                 tag: tag,
