@@ -56,6 +56,7 @@ public actor AgentCore {
 
     public func start() async {
         reconcileInterruptedJobs()
+        await reapOrphanedServers()
         await queue.observe { [weak self] event in
             Task { await self?.handle(queueEvent: event) }
         }
@@ -66,17 +67,25 @@ public actor AgentCore {
         startMaintenanceSweep()
     }
 
-    /// Closes off jobs that were running when the agent last stopped.
-    ///
-    /// Nothing is running them any more, so leaving them `running` would show a
-    /// backup in progress for ever — and the interface would be right to
-    /// believe the catalog.
+    private func reapOrphanedServers() async {
+        let paths = (try? catalog.repositories().map(\.path)) ?? []
+        _ = await OrphanedServers.reap(
+            binaryDirectory: configuration.binaryDirectory,
+            repositoryPaths: paths
+        )
+    }
+
     /// How many entries the scheduler holds. Used by tests to prove a paused
     /// server contributes none.
     func scheduledEntryCountForTesting() async -> Int {
         await scheduler.statuses().count
     }
 
+    /// Closes off jobs that were running when the agent last stopped.
+    ///
+    /// Nothing is running them any more, so leaving them `running` would show a
+    /// backup in progress for ever — and the interface would be right to
+    /// believe the catalog.
     func reconcileInterruptedJobs(forServer serverID: ServerID? = nil, reason: String? = nil) {
         guard let active = try? catalog.activeJobs() else { return }
         for var job in active where serverID == nil || job.serverId == serverID?.value {
