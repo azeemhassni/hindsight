@@ -43,6 +43,8 @@ public struct RootView: View {
     @State private var browsingSnapshotID: String?
     @State private var settings: SettingsFlow?
     @State private var logSource: LogSource = .runs
+    @State private var removing: ServerStatus?
+    @State private var confirmingBackupDeletion: ServerStatus?
 
     enum LogSource: String, CaseIterable, Hashable {
         case runs
@@ -132,6 +134,40 @@ public struct RootView: View {
                 onClose: { onboarding = nil }
             )
         }
+        // Two steps on purpose: the first asks what should happen to the
+        // backups, and deleting them has to be chosen again by name.
+        .alert("Remove \(removing?.name ?? "this server")?", isPresented: removingBinding) {
+            Button("Keep the backups") {
+                guard let server = removing else { return }
+                Task { await model.removeServer(serverID: server.id, deleteBackups: false) }
+            }
+            Button("Delete the backups too", role: .destructive) {
+                confirmingBackupDeletion = removing
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "Hindsight stops backing it up either way. Keeping the backups leaves the "
+                    + "repository and the password that reads it on this Mac, so they can "
+                    + "still be restored or moved somewhere else."
+            )
+        }
+        .alert(
+            "Delete every backup of \(confirmingBackupDeletion?.name ?? "this server")?",
+            isPresented: deletingBackupsBinding
+        ) {
+            Button("Delete them", role: .destructive) {
+                guard let server = confirmingBackupDeletion else { return }
+                Task { await model.removeServer(serverID: server.id, deleteBackups: true) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "Every snapshot of this server is deleted from this Mac, along with the "
+                    + "password that reads them. There is no undo, and a recovery kit will "
+                    + "not bring them back."
+            )
+        }
         .onChange(of: model.activity.count) { _, _ in
             if let flow = restoreFlow, let last = model.lastRestoreEvent {
                 flow.apply(last)
@@ -190,6 +226,11 @@ public struct RootView: View {
                         saveRecoveryKit(forServer: server.id)
                     }
                     .help("Save this server's repository password somewhere other than this Mac")
+                    Divider()
+                    Button("Remove server…", systemImage: "trash", role: .destructive) {
+                        removing = server
+                    }
+                    .help("Stop backing this server up and forget it")
                 } label: {
                     Label("More", systemImage: "ellipsis.circle")
                 }
@@ -275,6 +316,9 @@ public struct RootView: View {
                 onOpenSnapshot: { snapshot in
                     browsingSnapshotID = snapshot.id.value
                     model.tab = .snapshots
+                },
+                onStopWork: {
+                    Task { await model.stopWork(serverID: server.id) }
                 }
             )
 
@@ -352,6 +396,17 @@ public struct RootView: View {
                 }
             )
         }
+    }
+
+    private var removingBinding: Binding<Bool> {
+        Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })
+    }
+
+    private var deletingBackupsBinding: Binding<Bool> {
+        Binding(
+            get: { confirmingBackupDeletion != nil },
+            set: { if !$0 { confirmingBackupDeletion = nil } }
+        )
     }
 
     private func flow(for server: ServerStatus) -> RestoreFlow {

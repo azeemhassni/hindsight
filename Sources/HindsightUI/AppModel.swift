@@ -260,6 +260,46 @@ public final class AppModel {
         }
     }
 
+    /// Stops whatever is running or queued for a server.
+    @discardableResult
+    public func stopWork(serverID: String) async -> Bool {
+        guard let send else { return false }
+        switch await send(.stopWork(serverID: serverID)) {
+        case .done:
+            note("Stopped the work in progress for \(serverID).")
+            await refresh()
+            return true
+        case let .failed(message):
+            lastError = message
+            await refresh()
+            return false
+        default:
+            return false
+        }
+    }
+
+    /// Forgets a server, and optionally its backups with it.
+    @discardableResult
+    public func removeServer(serverID: String, deleteBackups: Bool) async -> Bool {
+        guard let send else { return false }
+        switch await send(.removeServer(serverID: serverID, deleteBackups: deleteBackups)) {
+        case .done:
+            note(
+                deleteBackups
+                    ? "Removed \(serverID) and deleted its backups."
+                    : "Removed \(serverID). Its backups were kept."
+            )
+            if selectedServerID == serverID { selectedServerID = nil }
+            await refresh()
+            return true
+        case let .failed(message):
+            lastError = message
+            return false
+        default:
+            return false
+        }
+    }
+
     public func runMaintenance(serverID: String) async {
         guard let send else { return }
         if case let .failed(message) = await send(.runMaintenance(serverID: serverID)) {

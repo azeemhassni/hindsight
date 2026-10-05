@@ -458,3 +458,27 @@ rather than the backing up:
   could stall a backup all afternoon. Dumps now time out after fifteen minutes,
   listing after two, and each one announces itself first — "Dumping coolify-db
   (3 of 11)…" — so a run that stops moving says what it is waiting on.
+
+## Stopping, removing, and saying what is wrong
+
+Three things the window could not do, all of which it should have.
+
+**A backup in progress can be stopped.** Pause used to mean "do not start the
+next one", which is not what someone pressing it during a four-hour run wants.
+Pausing now cancels what is already running, and the card for a running job has
+its own stop button. Cancelling reaches the work: the process layer kills the
+ssh it is waiting on, so it stops in moments. Anything already copied stays in
+the repository and the next run carries on from there.
+
+**A server can be removed.** It asks what should happen to the backups, and the
+two outcomes are kept apart: keeping them leaves the repository *and* the
+password that reads it, because a repository without its password is a pile of
+bytes nobody can open. Deleting them is a second confirmation that names the
+server, and takes the password with it — the one combination that cannot be
+half-done.
+
+**"Needs attention" says what.** The agent works out the reason where it works
+out the health: the last backup failed and why, the integrity check found a
+problem, nothing has ever run, or the last one finished days ago. It appears
+under the health line and is read out with the sidebar row. An error is trimmed
+to one readable line; the whole thing is still in the log.

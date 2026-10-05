@@ -26,6 +26,11 @@ public enum AgentRequest: Codable, Sendable, Hashable {
     case reloadSchedules
     /// Stops or restarts scheduled backups for one server.
     case setPaused(serverID: String, paused: Bool)
+    /// Stops everything running or queued for one server.
+    case stopWork(serverID: String)
+    /// Forgets a server. `deleteBackups` also removes its repository and the
+    /// password that reads it — after which those backups are gone for good.
+    case removeServer(serverID: String, deleteBackups: Bool)
     case runMaintenance(serverID: String)
     case checkIntegrity(serverID: String)
     /// Works out exactly what a restore would change, without changing it.
@@ -552,6 +557,9 @@ public struct ServerStatus: Codable, Sendable, Hashable {
     public var lastCheckPassed: Bool?
     /// When scheduled backups were paused, or nil while they run.
     public var pausedAt: Date?
+    /// Why the health is what it is, in words. "Needs attention" on its own
+    /// tells someone there is a problem and nothing about what it is.
+    public var healthReason: String?
 
     public init(
         id: String,
@@ -561,7 +569,8 @@ public struct ServerStatus: Codable, Sendable, Hashable {
         nextBackupAt: Date?,
         scheduleExplanation: String,
         lastCheckPassed: Bool?,
-        pausedAt: Date? = nil
+        pausedAt: Date? = nil,
+        healthReason: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -571,6 +580,7 @@ public struct ServerStatus: Codable, Sendable, Hashable {
         self.scheduleExplanation = scheduleExplanation
         self.lastCheckPassed = lastCheckPassed
         self.pausedAt = pausedAt
+        self.healthReason = healthReason
     }
 
     public var isPaused: Bool { pausedAt != nil }

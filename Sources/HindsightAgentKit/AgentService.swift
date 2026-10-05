@@ -77,18 +77,15 @@ public actor AgentCore {
         await scheduler.statuses().count
     }
 
-    func reconcileInterruptedJobs() {
+    func reconcileInterruptedJobs(forServer serverID: ServerID? = nil, reason: String? = nil) {
         guard let active = try? catalog.activeJobs() else { return }
-        for var job in active {
-            job.state = .failed
+        for var job in active where serverID == nil || job.serverId == serverID?.value {
+            let text = reason ?? "Interrupted: the agent stopped while this was running."
+            job.state = reason == nil ? .failed : .cancelled
             job.finishedAt = Date()
-            job.errorText = "Interrupted: the agent stopped while this was running."
+            job.errorText = text
             try? catalog.save(job)
-            try? catalog.append(
-                "Interrupted: the agent stopped while this was running.",
-                level: .warning,
-                to: JobID(unchecked: job.id)
-            )
+            try? catalog.append(text, level: .warning, to: JobID(unchecked: job.id))
         }
     }
 
@@ -175,12 +172,23 @@ public actor AgentCore {
             await queue.cancelAll()
             return .done
 
+        case let .stopWork(serverID):
+            return await stopWork(serverID: serverID)
+
+        case let .removeServer(serverID, deleteBackups):
+            return await removeServer(serverID: serverID, deleteBackups: deleteBackups)
+
         case let .setPaused(serverID, paused):
             guard let id = try? ServerID(validating: serverID),
                   (try? catalog.setPaused(paused, forServer: id)) == true
             else { return .failed(message: "No server with id \(serverID).") }
-            // Applied at once rather than at the next sweep: pausing is what
-            // someone does when a backup must not start now.
+            if paused {
+                // Pausing means stop backing up, not stop starting backups: a
+                // run already going is what someone is usually trying to stop.
+                _ = await queue.cancelAll(forServer: id)
+                reconcileInterruptedJobs(forServer: id, reason: "Backups were paused.")
+            }
+            // Applied at once rather than at the next sweep.
             await reloadSchedules()
             return .done
 
@@ -345,6 +353,7 @@ public actor AgentCore {
                 .finishedAt
             let lastCheck = repository.flatMap { try? catalog.latestCheck(forRepository: $0.id) }
 
+            let recent = (try? catalog.jobs(forServer: server.id, limit: 20)) ?? []
             return ServerStatus(
                 id: server.id.value,
                 name: server.name,
@@ -355,7 +364,12 @@ public actor AgentCore {
                     ? "Paused. Scheduled backups will not run until you resume them."
                     : (schedule?.decision.explanation ?? "No schedule."),
                 lastCheckPassed: lastCheck.map { $0.outcome == .passed },
-                pausedAt: server.pausedAt
+                pausedAt: server.pausedAt,
+                healthReason: Self.healthReason(
+                    lastBackupAt: lastBackup,
+                    lastCheckPassed: lastCheck.map { $0.outcome == .passed },
+                    recentJobs: recent
+                )
             )
         }
 
@@ -365,6 +379,39 @@ public actor AgentCore {
             runningJobs: Array(running.values),
             binaryIdentity: CodeIdentity.binaryIdentity
         )
+    }
+
+    /// Why a server is in the state it is, said plainly.
+    ///
+    /// "Needs attention" on its own tells someone there is a problem and
+    /// nothing about what it is, which leaves them opening logs to find out.
+    public static func healthReason(
+        lastBackupAt: Date?,
+        lastCheckPassed: Bool?,
+        recentJobs: [JobRecord],
+        now: Date = Date()
+    ) -> String? {
+        if let failure = recentJobs.first(where: { $0.state == .failed }),
+           failure.finishedAt ?? failure.queuedAt > (lastBackupAt ?? .distantPast) {
+            let reason = failure.errorText.map(Self.firstLine) ?? "no reason was recorded"
+            return "The last \(failure.kind.name) failed: \(reason)"
+        }
+        if lastCheckPassed == false {
+            return "The last integrity check found a problem in the repository."
+        }
+        guard let lastBackupAt else {
+            return "This server has never been backed up."
+        }
+        let age = now.timeIntervalSince(lastBackupAt)
+        if age > 48 * 3600 {
+            return "The last backup finished \(Int(age / 86400)) days ago."
+        }
+        return nil
+    }
+
+    static func firstLine(of text: String) -> String {
+        let line = text.split(separator: "\n").first.map(String.init) ?? text
+        return line.count > 160 ? String(line.prefix(160)) + "…" : line
     }
 
     public static func health(lastBackupAt: Date?, lastCheckPassed: Bool) -> ServerStatus.Health {

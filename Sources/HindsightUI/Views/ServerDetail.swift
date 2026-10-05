@@ -11,6 +11,8 @@ public struct ServerDetailView: View {
     /// Picking a point in the history opens it, which is the thing a person
     /// wants next after noticing it.
     let onOpenSnapshot: (Snapshot) -> Void
+    /// Stops whatever is running. Only reachable while something is.
+    let onStopWork: () -> Void
 
     @State private var selectedSnapshot: Snapshot?
 
@@ -19,20 +21,22 @@ public struct ServerDetailView: View {
         job: RunningJob?,
         snapshots: [Snapshot],
         repositorySizeBytes: Int64?,
-        onOpenSnapshot: @escaping (Snapshot) -> Void = { _ in }
+        onOpenSnapshot: @escaping (Snapshot) -> Void = { _ in },
+        onStopWork: @escaping () -> Void = {}
     ) {
         self.server = server
         self.job = job
         self.snapshots = snapshots
         self.repositorySizeBytes = repositorySizeBytes
         self.onOpenSnapshot = onOpenSnapshot
+        self.onStopWork = onStopWork
     }
 
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 header
-                if let job { RunningJobCard(job: job) }
+                if let job { RunningJobCard(job: job, onStop: onStopWork) }
                 SnapshotTimeline(snapshots: snapshots, selection: $selectedSnapshot)
                 statistics
             }
@@ -52,6 +56,12 @@ public struct ServerDetailView: View {
                     .accessibilityHidden(true)
                 Text(server.health.label)
                     .font(.headline)
+            }
+            if let reason = server.healthReason {
+                Text(reason)
+                    .foregroundStyle(server.health == .healthy ? .secondary : .primary)
+                    .lineLimit(3)
+                    .textSelection(.enabled)
             }
             Text(server.scheduleExplanation)
                 .foregroundStyle(.secondary)
@@ -115,6 +125,7 @@ struct StatisticRow: View {
 
 struct RunningJobCard: View {
     let job: RunningJob
+    let onStop: () -> Void
 
     var body: some View {
         GroupBox {
@@ -122,6 +133,10 @@ struct RunningJobCard: View {
                 HStack {
                     Text(job.phaseLabel).font(.headline)
                     Spacer()
+                    Button("Stop", systemImage: "stop.circle", action: onStop)
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                        .help("Stop this run. Anything already copied stays in the repository.")
                     if job.showsPercentage {
                         Text(Format.percent(job.percentDone)).monospacedDigit()
                     }

@@ -115,6 +115,9 @@ struct ServerRow: View {
         if server.isPaused {
             parts.append("Backups are paused.")
         }
+        if let reason = server.healthReason {
+            parts.append(reason)
+        }
         if let job {
             // A running job with no progress yet reads as "Backing up." rather
             // than "Backing up, — done.", which is what the dash renders as.

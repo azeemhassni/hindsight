@@ -44,6 +44,9 @@ public actor JobQueue {
     public typealias Work = @Sendable (QueuedJob) async throws -> Void
 
     private var running: [String: JobID] = [:]
+    /// Which server each running job belongs to, so everything for one server
+    /// can be stopped without reaching into the catalog.
+    private var jobServerIDs: [JobID: ServerID] = [:]
     private var pending: [String: [QueuedJob]] = [:]
     private var tasks: [JobID: Task<Void, Never>] = [:]
     private var observers: [UUID: @Sendable (JobQueueEvent) -> Void] = [:]
@@ -98,8 +101,44 @@ public actor JobQueue {
         pending.removeAll()
     }
 
+    /// Stops one job, running or queued.
+    ///
+    /// Cancelling the task is what reaches the work: the process layer kills
+    /// the ssh it is waiting on, so a backup stops within moments rather than
+    /// when the server finishes whatever it was doing.
+    @discardableResult
+    public func cancel(jobID: JobID) -> Bool {
+        if let task = tasks[jobID] {
+            task.cancel()
+            return true
+        }
+        for (path, queue) in pending {
+            guard queue.contains(where: { $0.id == jobID }) else { continue }
+            pending[path] = queue.filter { $0.id != jobID }
+            return true
+        }
+        return false
+    }
+
+    /// Stops everything for one server: what is running, and what is waiting.
+    @discardableResult
+    public func cancelAll(forServer serverID: ServerID) -> Int {
+        var stopped = 0
+        for (path, queue) in pending {
+            let keep = queue.filter { $0.serverID != serverID }
+            stopped += queue.count - keep.count
+            pending[path] = keep
+        }
+        for (id, task) in tasks where jobServerIDs[id] == serverID {
+            task.cancel()
+            stopped += 1
+        }
+        return stopped
+    }
+
     private func start(_ job: QueuedJob) {
         running[job.repositoryPath] = job.id
+        jobServerIDs[job.id] = job.serverID
         emit(.started(job))
 
         tasks[job.id] = Task { [work] in
@@ -119,6 +158,7 @@ public actor JobQueue {
 
     private func finish(_ job: QueuedJob, state: JobState, error: String?) {
         tasks[job.id] = nil
+        jobServerIDs[job.id] = nil
         running[job.repositoryPath] = nil
         emit(.finished(job, state: state, error: error))
 
