@@ -8,73 +8,149 @@ import SwiftUI
 /// window unusable.
 public struct SnapshotBrowserView: View {
     let snapshot: Snapshot
-    let loadChildren: (String) async -> [SnapshotTreeNode]
+    let browser: SnapshotBrowserModel
     let onRestore: (SnapshotTreeNode) -> Void
     let onPreview: (SnapshotTreeNode) -> Void
+    let onSaveCopy: ((SnapshotTreeNode) -> Void)?
 
-    @State private var roots: [SnapshotTreeNode] = []
-    @State private var expanded: Set<String> = []
-    @State private var selection: SnapshotTreeNode?
-    @State private var search = ""
-    @State private var isLoading = true
+    @State private var term = ""
 
     public init(
         snapshot: Snapshot,
-        loadChildren: @escaping (String) async -> [SnapshotTreeNode],
+        browser: SnapshotBrowserModel,
         onRestore: @escaping (SnapshotTreeNode) -> Void,
-        onPreview: @escaping (SnapshotTreeNode) -> Void
+        onPreview: @escaping (SnapshotTreeNode) -> Void,
+        onSaveCopy: ((SnapshotTreeNode) -> Void)? = nil
     ) {
         self.snapshot = snapshot
-        self.loadChildren = loadChildren
+        self.browser = browser
         self.onRestore = onRestore
         self.onPreview = onPreview
+        self.onSaveCopy = onSaveCopy
     }
 
     public var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
-            if isLoading {
-                ProgressView("Reading the snapshot…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if visibleRoots.isEmpty {
-                VStack(spacing: 6) {
-                    Text(search.isEmpty ? "Nothing to show" : "Nothing matches")
-                        .font(.headline)
-                    Text(
-                        search.isEmpty
-                            ? "This snapshot's files could not be listed. The repository may not be on this Mac."
-                            : "No file or folder here matches \"\(search)\"."
-                    )
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 360)
-                }
+            content
+            if let node = browser.selectedNode {
+                Divider()
+                NodeDetail(node: node)
+            }
+        }
+        .task { await browser.start() }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if browser.isLoadingRoot {
+            ProgressView("Reading the snapshot…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            switch browser.mode {
+            case .tree:
+                if browser.rows.isEmpty { empty } else { tree }
+            case .searching:
+                ProgressView("Searching every file in this snapshot…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case let .results(searched, truncated):
+                results(for: searched, truncated: truncated)
+            }
+        }
+    }
+
+    private var empty: some View {
+        VStack(spacing: 6) {
+            Text("Nothing to show").font(.headline)
+            Text("""
+            This snapshot's files could not be listed. The repository may not \
+            be on this Mac.
+            """)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .lineLimit(4)
+            .frame(maxWidth: 360)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// A flat list of rows with their own indentation and chevrons rather than
+    /// an `OutlineGroup`: an outline wants the whole tree up front, and this
+    /// one is read a folder at a time as folders are opened.
+    private var tree: some View {
+        List(browser.rows, selection: Binding(
+            get: { browser.selection },
+            set: { browser.selection = $0 }
+        )) { row in
+            SnapshotRowView(row: row, toggle: { Task { await browser.toggle(row.node.path) } })
+                .tag(row.node.path)
+                .contextMenu { menu(for: row.node) }
+        }
+        .listStyle(.inset)
+        .alternatingRowBackgrounds()
+    }
+
+    private func results(for searched: String, truncated: Bool) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Text(summary(count: browser.matches.count, truncated: truncated, term: searched))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Back to the tree") {
+                    term = ""
+                    browser.clearSearch()
+                }
+                .buttonStyle(.link)
+                .help("Stop showing search results and go back to browsing folders")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            Divider()
+            if browser.matches.isEmpty {
+                Text("Nothing in this snapshot is named like that.")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(selection: $selection) {
-                    OutlineGroup(visibleRoots, children: \.children) { node in
-                        SnapshotNodeRow(node: node)
-                            .tag(node)
-                            .contextMenu {
-                                Button("Restore this…", systemImage: "arrow.counterclockwise") {
-                                    onRestore(node)
-                                }
-                                .help("Put this back on the server, from this snapshot")
-                                if node.isPreviewable {
-                                    Button("Quick Look", systemImage: "eye") { onPreview(node) }
-                                        .help("Look at this file without restoring it")
-                                }
+                List(browser.matches, selection: Binding(
+                    get: { browser.selection },
+                    set: { browser.selection = $0 }
+                )) { node in
+                    MatchRow(node: node)
+                        .tag(node.path)
+                        .contextMenu {
+                            Button("Show in the tree", systemImage: "list.bullet.indent") {
+                                Task { await browser.reveal(node.path) }
+                                term = ""
                             }
-                    }
+                            .help("Open the folders leading to this and select it")
+                            Divider()
+                            menu(for: node)
+                        }
                 }
                 .listStyle(.inset)
             }
         }
-        .task {
-            roots = await loadChildren("/")
-            isLoading = false
+    }
+
+    @ViewBuilder
+    private func menu(for node: SnapshotTreeNode) -> some View {
+        Button("Restore this…", systemImage: "arrow.counterclockwise") { onRestore(node) }
+            .help("Put this back on the server, from this snapshot")
+        if node.isPreviewable {
+            Button("Quick Look", systemImage: "eye") { onPreview(node) }
+                .help("Look at this file without restoring it")
         }
+        if let onSaveCopy, !node.isDirectory {
+            Button("Save a Copy…", systemImage: "square.and.arrow.down") { onSaveCopy(node) }
+                .help("Write a copy of this file to this Mac, leaving the server alone")
+        }
+    }
+
+    private func summary(count: Int, truncated: Bool, term: String) -> String {
+        if truncated { return "First \(count) matches for \"\(term)\" — narrow it to see the rest" }
+        return count == 1 ? "1 match for \"\(term)\"" : "\(count) matches for \"\(term)\""
     }
 
     /// Its own controls rather than `searchable` and a `toolbar`: this view is
@@ -87,31 +163,24 @@ public struct SnapshotBrowserView: View {
                 .lineLimit(1)
                 .layoutPriority(1)
             Spacer(minLength: 8)
-            TextField("Search this snapshot", text: $search)
+            TextField("Search this snapshot", text: $term)
                 .textFieldStyle(.roundedBorder)
                 .frame(minWidth: 90, idealWidth: 220, maxWidth: 220)
+                .onSubmit { Task { await browser.search(term) } }
+                .help("Type a name and press Return to read the whole snapshot for it")
             Button("Restore…", systemImage: "arrow.counterclockwise") {
-                if let selection { onRestore(selection) }
+                if let node = browser.selectedNode { onRestore(node) }
             }
-            .disabled(selection == nil)
+            .disabled(browser.selectedNode == nil)
             .help("Put the selected file or folder back on the server")
             Button("Quick Look", systemImage: "eye") {
-                if let selection { onPreview(selection) }
+                if let node = browser.selectedNode { onPreview(node) }
             }
             .labelStyle(.iconOnly)
-            .disabled(selection?.isPreviewable != true)
+            .disabled(browser.selectedNode?.isPreviewable != true)
             .help("Look at this file without restoring it")
         }
         .padding(8)
-    }
-
-    /// Filtering is by name within what has been loaded: the tree is read a
-    /// directory at a time, so a search cannot promise to reach files nobody
-    /// has opened yet, and pretending otherwise would be worse than this.
-    private var visibleRoots: [SnapshotTreeNode] {
-        let term = search.trimmingCharacters(in: .whitespaces)
-        guard !term.isEmpty else { return roots }
-        return SnapshotTreeBuilder.search(roots, for: term)
     }
 
     private var title: String {
@@ -122,7 +191,70 @@ public struct SnapshotBrowserView: View {
     }
 }
 
-struct SnapshotNodeRow: View {
+/// One row of the tree: indentation, a chevron for folders, name and size.
+struct SnapshotRowView: View {
+    let row: SnapshotBrowserModel.Row
+    let toggle: () -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Spacer()
+                .frame(width: CGFloat(row.depth) * 14)
+            chevron
+            Image(systemName: row.node.isDirectory ? "folder" : "doc")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            Text(row.node.name)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 12)
+            if !row.node.isDirectory {
+                Text(Format.bytes(row.node.sizeBytes))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) { if row.node.isDirectory { toggle() } }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(row.node.isDirectory ? [.isButton] : [])
+        .accessibilityAction(named: row.isExpanded ? "Collapse" : "Expand") {
+            if row.node.isDirectory { toggle() }
+        }
+    }
+
+    @ViewBuilder
+    private var chevron: some View {
+        if row.isLoading {
+            ProgressView()
+                .controlSize(.mini)
+                .frame(width: 14)
+        } else if row.node.isDirectory, !row.isEmptyDirectory {
+            Button(action: toggle) {
+                Image(systemName: row.isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 14)
+            }
+            .buttonStyle(.plain)
+            .help(row.isExpanded ? "Close this folder" : "Open this folder")
+        } else {
+            Spacer().frame(width: 14)
+        }
+    }
+
+    private var label: String {
+        if row.node.isDirectory {
+            let state = row.isEmptyDirectory ? "empty" : (row.isExpanded ? "open" : "closed")
+            return "Folder \(row.node.name), \(state)"
+        }
+        return "File \(row.node.name), \(Format.bytes(row.node.sizeBytes))"
+    }
+}
+
+/// A search result, which needs its whole path to mean anything.
+struct MatchRow: View {
     let node: SnapshotTreeNode
 
     var body: some View {
@@ -130,7 +262,14 @@ struct SnapshotNodeRow: View {
             Image(systemName: node.isDirectory ? "folder" : "doc")
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
-            Text(node.name)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(node.name).lineLimit(1)
+                Text((node.path as NSString).deletingLastPathComponent)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+            }
             Spacer(minLength: 12)
             if !node.isDirectory {
                 Text(Format.bytes(node.sizeBytes))
@@ -141,9 +280,40 @@ struct SnapshotNodeRow: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             node.isDirectory
-                ? "Folder \(node.name)"
-                : "File \(node.name), \(Format.bytes(node.sizeBytes))"
+                ? "Folder \(node.name) in \((node.path as NSString).deletingLastPathComponent)"
+                : "File \(node.name) in \((node.path as NSString).deletingLastPathComponent), "
+                    + Format.bytes(node.sizeBytes)
         )
+    }
+}
+
+/// What is known about the selected entry.
+struct NodeDetail: View {
+    let node: SnapshotTreeNode
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Text(node.path)
+                .font(.caption.monospaced())
+                .lineLimit(1)
+                .truncationMode(.head)
+                .textSelection(.enabled)
+            Spacer(minLength: 8)
+            if !node.isDirectory {
+                Text(Format.bytes(node.sizeBytes)).font(.caption.monospacedDigit())
+            }
+            if let modified = node.modifiedAt {
+                Text(modified, format: .dateTime.day().month().year().hour().minute())
+                    .font(.caption)
+            }
+            if let permissions = node.permissions {
+                Text(permissions).font(.caption.monospaced())
+            }
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .combine)
     }
 }
 

@@ -10,8 +10,10 @@ public struct SnapshotsTab: View {
     let snapshots: [Snapshot]
     @Binding var selection: String?
     let loadChildren: (SnapshotID, String) async -> [SnapshotTreeNode]
+    let search: ((SnapshotID, String) async -> SnapshotSearchOutcome)?
     let onRestore: (Snapshot, SnapshotTreeNode?) -> Void
     let onPreview: (Snapshot, SnapshotTreeNode) -> Void
+    let onSaveCopy: ((Snapshot, SnapshotTreeNode) -> Void)?
 
     @State private var kindFilter: SnapshotKind?
 
@@ -19,14 +21,18 @@ public struct SnapshotsTab: View {
         snapshots: [Snapshot],
         selection: Binding<String?>,
         loadChildren: @escaping (SnapshotID, String) async -> [SnapshotTreeNode],
+        search: ((SnapshotID, String) async -> SnapshotSearchOutcome)? = nil,
         onRestore: @escaping (Snapshot, SnapshotTreeNode?) -> Void,
-        onPreview: @escaping (Snapshot, SnapshotTreeNode) -> Void
+        onPreview: @escaping (Snapshot, SnapshotTreeNode) -> Void,
+        onSaveCopy: ((Snapshot, SnapshotTreeNode) -> Void)? = nil
     ) {
         self.snapshots = snapshots
         _selection = selection
         self.loadChildren = loadChildren
+        self.search = search
         self.onRestore = onRestore
         self.onPreview = onPreview
+        self.onSaveCopy = onSaveCopy
     }
 
     public var body: some View {
@@ -75,9 +81,13 @@ public struct SnapshotsTab: View {
         if let selected {
             SnapshotBrowserView(
                 snapshot: selected,
-                loadChildren: { path in await loadChildren(selected.id, path) },
+                browser: SnapshotBrowserModel(
+                    load: { path in await loadChildren(selected.id, path) },
+                    find: search.map { search in { term in await search(selected.id, term) } }
+                ),
                 onRestore: { node in onRestore(selected, node) },
-                onPreview: { node in onPreview(selected, node) }
+                onPreview: { node in onPreview(selected, node) },
+                onSaveCopy: onSaveCopy.map { save in { node in save(selected, node) } }
             )
             // Keyed on the snapshot so switching snapshots reloads the tree
             // rather than showing the previous one's files under a new date.

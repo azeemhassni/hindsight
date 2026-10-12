@@ -49,8 +49,14 @@ struct HindsightApp: App {
                 browse: { serverID, snapshot, path in
                     await browse(serverID: serverID, snapshot: snapshot, path: path)
                 },
+                searchSnapshot: { serverID, snapshot, term in
+                    await search(serverID: serverID, snapshot: snapshot, term: term)
+                },
                 preview: { serverID, snapshot, path in
                     Task { await preview(serverID: serverID, snapshot: snapshot, path: path) }
+                },
+                saveCopy: { serverID, snapshot, path in
+                    Task { await saveCopy(serverID: serverID, snapshot: snapshot, path: path) }
                 },
                 exportRecoveryKit: { serverID in
                     await RecoveryKitExport.save(await model.recoveryKit(serverID: serverID))
@@ -231,18 +237,47 @@ struct HindsightApp: App {
             snapshotID: snapshot.value,
             path: path
         )
-        return nodes.map { node in
-            SnapshotTreeNode(
-                path: node.path,
-                name: node.name,
-                isDirectory: node.isDirectory,
-                sizeBytes: node.sizeBytes,
-                modifiedAt: node.modifiedAt,
-                permissions: node.permissions,
-                // Left unloaded so the browser asks for a directory only when
-                // somebody opens it.
-                children: node.isDirectory ? nil : []
-            )
+        return nodes.map(SnapshotTreeNode.init(report:))
+    }
+
+    private func search(
+        serverID: String,
+        snapshot: SnapshotID,
+        term: String
+    ) async -> SnapshotSearchOutcome {
+        let found = await model.searchSnapshot(
+            serverID: serverID,
+            snapshotID: snapshot.value,
+            term: term
+        )
+        return SnapshotSearchOutcome(
+            nodes: found.nodes.map(SnapshotTreeNode.init(report:)),
+            truncated: found.truncated,
+            failure: found.failure
+        )
+    }
+
+    /// Writes one file out of a snapshot onto this Mac.
+    ///
+    /// Not a restore: nothing is sent to the server, which is the point of
+    /// being able to look inside a backup and take one file out of it.
+    private func saveCopy(serverID: String, snapshot: SnapshotID, path: String) async {
+        guard let extracted = await model.extractFile(
+            serverID: serverID,
+            snapshotID: snapshot.value,
+            path: path
+        ) else { return }
+
+        let source = URL(fileURLWithPath: extracted)
+        guard let destination = FileExport.chooseDestination(named: source.lastPathComponent) else {
+            return
+        }
+        do {
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.copyItem(at: source, to: destination)
+            model.note("Saved \(source.lastPathComponent) to \(destination.path).", level: .info)
+        } catch {
+            model.note("Could not save \(source.lastPathComponent): \(error)", level: .error)
         }
     }
 

@@ -32,6 +32,9 @@ public actor AgentCore {
     private var maintenanceSweep: Task<Void, Never>?
     let maintenanceSchedule = MaintenanceSchedule.default
     let notifier = Notifier()
+    /// Directory listings already read out of a snapshot. A snapshot cannot
+    /// change, so these are only ever dropped to bound memory.
+    let listings = SnapshotListingCache()
 
     public init(
         configuration: AgentConfiguration,
@@ -292,6 +295,14 @@ public actor AgentCore {
                 serverID: serverID,
                 snapshotID: snapshotID,
                 path: path
+            )
+
+        case let .searchSnapshot(serverID, snapshotID, term, limit):
+            return await searchSnapshot(
+                serverID: serverID,
+                snapshotID: snapshotID,
+                term: term,
+                limit: limit
             )
 
         case let .extractFile(serverID, snapshotID, path):

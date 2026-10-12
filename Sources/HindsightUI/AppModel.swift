@@ -380,6 +380,35 @@ public final class AppModel {
         }
     }
 
+    /// Searches a whole snapshot by name.
+    ///
+    /// The agent reads the snapshot to answer this, so it is slow by nature
+    /// and the interface shows it running rather than pretending otherwise.
+    public func searchSnapshot(
+        serverID: String,
+        snapshotID: String,
+        term: String,
+        limit: Int = 500
+    ) async -> (nodes: [SnapshotNodeReport], truncated: Bool, failure: String?) {
+        guard let send else { return ([], false, "The agent is not connected.") }
+        switch await send(
+            .searchSnapshot(
+                serverID: serverID,
+                snapshotID: snapshotID,
+                term: term,
+                limit: limit
+            )
+        ) {
+        case let .snapshotMatches(nodes, truncated):
+            return (nodes, truncated, nil)
+        case let .failed(message):
+            note("Could not search this snapshot: \(message)", level: .error)
+            return ([], false, message)
+        default:
+            return ([], false, "The agent did not answer.")
+        }
+    }
+
     /// Extracts one file for Quick Look, returning where the agent put it.
     public func extractFile(
         serverID: String,

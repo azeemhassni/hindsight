@@ -22,6 +22,23 @@ enum RepositoryChooser {
     }
 }
 
+/// Choosing where to put a file taken out of a backup.
+@MainActor
+enum FileExport {
+    static func chooseDestination(named name: String) -> URL? {
+        let panel = NSSavePanel()
+        panel.title = "Save a copy from this backup"
+        panel.message = """
+        This writes a copy onto this Mac. Nothing is sent to the server.
+        """
+        panel.nameFieldStringValue = name
+        panel.canCreateDirectories = true
+        panel.prompt = "Save"
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
+    }
+}
+
 /// Looking at one file out of a snapshot without restoring anything.
 ///
 /// The file is extracted to a temporary directory and shown with Quick Look:

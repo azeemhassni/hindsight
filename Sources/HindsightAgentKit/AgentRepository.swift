@@ -21,20 +21,76 @@ extension AgentCore {
     ) async -> AgentResponse {
         do {
             let client = try await repositoryClient(forServer: serverID)
-            let nodes = try await client.children(
-                ofSnapshot: SnapshotID(unchecked: snapshotID),
-                path: path
+            let snapshot = SnapshotID(unchecked: snapshotID)
+            let fetch: SnapshotListingCache.Fetch = { paths in
+                try await client
+                    .children(ofSnapshot: snapshot, paths: paths)
+                    .mapValues { $0.map(SnapshotNodeReport.init(node:)) }
+            }
+
+            let nodes = try await listings.listing(
+                serverID: serverID,
+                snapshotID: snapshotID,
+                path: path,
+                fetch: fetch
             )
-            return .snapshotNodes(nodes.map { node in
-                SnapshotNodeReport(
-                    path: node.path,
-                    name: node.name,
-                    isDirectory: node.isDirectory,
-                    sizeBytes: node.size,
-                    modifiedAt: node.mtime,
-                    permissions: node.permissions
-                )
-            })
+            // Reading the subdirectories now, while nobody is waiting, is what
+            // makes opening one of them instant: one more index load off
+            // screen instead of one per folder opened.
+            await listings.prefetchChildren(
+                serverID: serverID,
+                snapshotID: snapshotID,
+                of: nodes,
+                fetch: fetch
+            )
+            return .snapshotNodes(nodes)
+        } catch {
+            return .failed(message: "\(error)")
+        }
+    }
+
+    /// Finds entries in a snapshot by name.
+    ///
+    /// One recursive listing of the whole snapshot, which is the only way:
+    /// restic has no search, and a tree walk a directory at a time would pay
+    /// the index load for every directory on the server. Expensive and
+    /// deliberate — the person asked — so it is capped, and the reply says
+    /// when the cap was reached rather than presenting the first few hundred
+    /// matches as all of them.
+    func searchSnapshot(
+        serverID: String,
+        snapshotID: String,
+        term: String,
+        limit: Int
+    ) async -> AgentResponse {
+        let needle = term.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !needle.isEmpty else { return .snapshotMatches(nodes: [], truncated: false) }
+
+        do {
+            let client = try await repositoryClient(forServer: serverID)
+            var matches: [SnapshotNodeReport] = []
+            var truncated = false
+            let cap = max(1, limit)
+            // Streamed and stopped at the cap: a recursive listing of a real
+            // server is far too large to hold, and stopping early is what
+            // keeps a common word from reading the whole snapshot.
+            try await client.walk(
+                snapshot: SnapshotID(unchecked: snapshotID),
+                recursive: true,
+                // The needle has to appear somewhere in the line for it to
+                // appear in the name, so this throws out almost everything
+                // before the expensive part. The real test is below.
+                considering: { $0.localizedCaseInsensitiveContains(needle) }
+            ) { node in
+                guard node.name.lowercased().contains(needle) else { return true }
+                matches.append(SnapshotNodeReport(node: node))
+                if matches.count >= cap {
+                    truncated = true
+                    return false
+                }
+                return true
+            }
+            return .snapshotMatches(nodes: matches, truncated: truncated)
         } catch {
             return .failed(message: "\(error)")
         }

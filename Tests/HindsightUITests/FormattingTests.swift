@@ -101,40 +101,6 @@ struct FormattingTests {
 
 @Suite("Snapshot tree")
 struct SnapshotTreeTests {
-    private let listing: [(path: String, isDirectory: Bool, size: Int64?, modified: Date?, permissions: String?)] = [
-        ("/srv", true, nil, nil, "drwxr-xr-x"),
-        ("/srv/app", true, nil, nil, "drwxr-xr-x"),
-        ("/srv/app/config.yml", false, 512, nil, "-rw-r--r--"),
-        ("/srv/app/logs", true, nil, nil, "drwxr-xr-x"),
-        ("/srv/app/logs/today.log", false, 2048, nil, "-rw-r--r--"),
-        ("/srv/readme.txt", false, 64, nil, "-rw-r--r--"),
-    ]
-
-    @Test("lists one level at a time, collapsing what is deeper")
-    func listsOneLevel() {
-        let children = SnapshotTreeBuilder.children(of: "/srv", from: listing)
-        #expect(children.map(\.name) == ["app", "readme.txt"])
-        #expect(children[0].isDirectory)
-        #expect(!children[1].isDirectory)
-        #expect(children[1].sizeBytes == 64)
-    }
-
-    @Test("puts directories before files, then sorts naturally")
-    func ordersSensibly() {
-        let children = SnapshotTreeBuilder.children(of: "/srv/app", from: listing)
-        #expect(children.map(\.name) == ["logs", "config.yml"])
-    }
-
-    @Test("an unopened directory is not the same as an empty one")
-    func distinguishesUnloadedFromEmpty() {
-        let unloaded = SnapshotTreeNode(path: "/srv", name: "srv", isDirectory: true)
-        #expect(!unloaded.isLoaded)
-
-        let empty = SnapshotTreeNode(path: "/srv", name: "srv", isDirectory: true, children: [])
-        #expect(empty.isLoaded)
-        #expect(empty.children?.isEmpty == true)
-    }
-
     @Test("knows which files are worth previewing")
     func knowsWhatToPreview() {
         func node(_ name: String, isDirectory: Bool = false) -> SnapshotTreeNode {
@@ -148,18 +114,6 @@ struct SnapshotTreeTests {
         #expect(!node("data.sqlite").isPreviewable)
         #expect(!node("blob.bin").isPreviewable)
         #expect(!node("srv", isDirectory: true).isPreviewable)
-    }
-
-    @Test("searches on the file name and caps the results")
-    func searches() {
-        let paths = listing.map(\.path)
-        #expect(
-            SnapshotTreeBuilder.search("log", in: paths)
-                == ["/srv/app/logs", "/srv/app/logs/today.log"]
-        )
-        #expect(SnapshotTreeBuilder.search("CONFIG", in: paths) == ["/srv/app/config.yml"])
-        #expect(SnapshotTreeBuilder.search("  ", in: paths).isEmpty)
-        #expect(SnapshotTreeBuilder.search("x", in: Array(repeating: "/a/x", count: 2000), limit: 10).count == 10)
     }
 
     @Test("every kind of change has a label and a symbol")

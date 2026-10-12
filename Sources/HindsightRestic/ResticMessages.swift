@@ -291,16 +291,102 @@ extension JSONDecoder {
     }
 }
 
-/// Formatters are not `Sendable`, and these decoders run on many threads, so
-/// each parse builds its own rather than sharing one.
+/// RFC 3339 timestamps, as restic writes them.
+///
+/// Parsed by hand rather than with `ISO8601DateFormatter`, which is not
+/// `Sendable` and so had to be constructed per timestamp — sometimes twice,
+/// when the first shape did not match. Measured on a listing of 26,575
+/// entries: 9.1s with the formatters against 1.3s to read the same output
+/// without decoding it, and every one of those nodes carries a timestamp.
 enum ResticTimestamp {
-    static func parse(_ text: String) -> Date? {
-        let withFraction = ISO8601DateFormatter()
-        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = withFraction.date(from: text) { return date }
+    private static let calendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        return calendar
+    }()
 
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: text)
+    /// `2026-10-13T00:36:42.139773478+05:00`, `…Z`, and the same without a
+    /// fractional part. Anything else is not a timestamp as far as this is
+    /// concerned, which is what the decoder wants to hear.
+    static func parse(_ text: String) -> Date? {
+        let scalars = Array(text.utf8)
+        // The date and time are fixed width: 19 characters before any
+        // fraction or offset.
+        guard scalars.count >= 20, scalars[4] == UInt8(ascii: "-"), scalars[7] == UInt8(ascii: "-"),
+              scalars[10] == UInt8(ascii: "T"), scalars[13] == UInt8(ascii: ":"),
+              scalars[16] == UInt8(ascii: ":"),
+              let year = number(scalars, 0, 4),
+              let month = number(scalars, 5, 2),
+              let day = number(scalars, 8, 2),
+              let hour = number(scalars, 11, 2),
+              let minute = number(scalars, 14, 2),
+              let second = number(scalars, 17, 2)
+        else { return nil }
+
+        // `Calendar` rolls an out-of-range component over rather than
+        // refusing it, so month 13 would quietly become January of the next
+        // year. A timestamp that cannot be read is better than one that is
+        // wrong by a year.
+        guard (1...12).contains(month), (1...31).contains(day),
+              (0...23).contains(hour), (0...59).contains(minute), (0...59).contains(second)
+        else { return nil }
+
+        var index = 19
+        var fraction: Double = 0
+        if index < scalars.count, scalars[index] == UInt8(ascii: ".") {
+            index += 1
+            var digits = 0
+            var scale: Double = 0.1
+            while index < scalars.count, let digit = digitValue(scalars[index]) {
+                fraction += Double(digit) * scale
+                scale /= 10
+                index += 1
+                digits += 1
+            }
+            guard digits > 0 else { return nil }
+        }
+
+        let offset: Int
+        if index < scalars.count, scalars[index] == UInt8(ascii: "Z") {
+            offset = 0
+            index += 1
+        } else if index + 6 <= scalars.count,
+                  scalars[index] == UInt8(ascii: "+") || scalars[index] == UInt8(ascii: "-"),
+                  scalars[index + 3] == UInt8(ascii: ":"),
+                  let offsetHours = number(scalars, index + 1, 2),
+                  let offsetMinutes = number(scalars, index + 4, 2) {
+            let magnitude = offsetHours * 3600 + offsetMinutes * 60
+            offset = scalars[index] == UInt8(ascii: "-") ? -magnitude : magnitude
+            index += 6
+        } else {
+            return nil
+        }
+        // Trailing rubbish means it was not a timestamp after all.
+        guard index == scalars.count else { return nil }
+
+        var components = DateComponents()
+        components.year = year
+        components.month = month
+        components.day = day
+        components.hour = hour
+        components.minute = minute
+        components.second = second
+        guard let base = calendar.date(from: components) else { return nil }
+        return base.addingTimeInterval(fraction - Double(offset))
+    }
+
+    private static func number(_ scalars: [UInt8], _ start: Int, _ length: Int) -> Int? {
+        guard start + length <= scalars.count else { return nil }
+        var value = 0
+        for index in start..<(start + length) {
+            guard let digit = digitValue(scalars[index]) else { return nil }
+            value = value * 10 + digit
+        }
+        return value
+    }
+
+    private static func digitValue(_ byte: UInt8) -> Int? {
+        guard byte >= UInt8(ascii: "0"), byte <= UInt8(ascii: "9") else { return nil }
+        return Int(byte - UInt8(ascii: "0"))
     }
 }

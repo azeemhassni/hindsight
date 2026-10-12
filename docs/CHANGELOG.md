@@ -517,3 +517,54 @@ Snapshots keep their `coolify:` tags: those live in the repositories, which no
 migration touches, and they are still how an old resource's history is found.
 A test migrates a populated pre-removal catalog to prove the drop works on the
 case every installed catalog is in.
+
+## Browsing a backup, and the cost of looking
+
+The snapshot browser was wired up but could not be used: directories came back
+with no children, `OutlineGroup` reads that as a leaf, so nothing had a
+disclosure triangle and nothing ever asked for a second directory. You could
+see the top of a snapshot and no further.
+
+It is now a tree that reads itself as folders are opened — a flat list of rows
+with their own chevrons rather than an outline, because an outline wants the
+whole tree up front and that is the one thing a snapshot cannot give. What has
+been read is kept, so closing a folder and opening it again, or going back up,
+costs nothing. Selecting an entry shows its full path, size, modification time
+and permissions; a file can be Quick Looked, restored to the server, or saved
+as a copy onto this Mac, which is what looking inside a backup is usually for.
+
+Search used to filter the folders that happened to be open and present the
+result as the answer. It now reads the whole snapshot — the agent streams a
+recursive listing, matches on the way past, and stops at the cap, and the
+result says when it stopped rather than showing the first few hundred as all
+of them. A match can be revealed in the tree, which opens the folders leading
+to it.
+
+**What made it slow, measured rather than guessed.** Three things, each
+verified against restic 0.19.1 and a 21,600-file repository:
+
+- **Opening a snapshot read the entire server.** `restic ls` with no path walks
+  the whole snapshot, and `--recursive` makes no difference to that — so
+  listing the root passed no path and read every file to show five rows. Naming
+  the path: 1.26s to 0.76s here, and the saving grows with the server.
+- **Every folder cost a repository index load.** `restic cat config` takes
+  0.09s where `restic snapshots` takes 0.75s on the same repository: the price
+  is opening the repository, not the listing. But `ls` takes many paths in one
+  invocation at that same price, so the agent now reads a folder's
+  subdirectories in one batched call in the background while nobody is
+  waiting. Opening twenty folders went from 14.78s to 0.80s, and a folder
+  opened after its prefetch lands is instant.
+- **Timestamps were most of the rest.** `ISO8601DateFormatter` is not
+  `Sendable`, so one was constructed per timestamp — occasionally two, when the
+  first shape did not match — and every entry in a listing carries one.
+  Replaced with a hand-written RFC 3339 parser: decoding 26,575 entries went
+  from 9.08s to 1.29s, against 1.31s to read the same output without decoding
+  it at all. It is held to the formatter's answer by test, and keeps the
+  sub-millisecond part the formatter rounds away.
+
+**A bug found while measuring.** `ProcessRunner` caps captured output at 4 MB
+and reports `outputWasTruncated`, which nothing read. A recursive listing of a
+real server runs well past that, so the search was answering from the first
+half of the snapshot: a file in `/var` could not be found while the same search
+in `/etc` worked. Listings are streamed now, which also lets a capped search
+stop the restic process early instead of reading to the end.

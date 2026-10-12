@@ -256,6 +256,53 @@ struct SnapshotBrowsingTests {
         #expect(grandchildren.map(\.name).sorted() == ["deeper", "leaf.txt"])
     }
 
+    /// Measured against restic 0.19.1: `ls` with no path walks the entire
+    /// snapshot and `--recursive` makes no difference to that, so a root
+    /// listing that passed no path read every file on the server to show a
+    /// handful of rows. Asserted on the arguments because the two produce the
+    /// same answer — one is just enormously slower.
+    @Test("names the directory it lists, so the root is not a whole-tree read")
+    func rootListingNamesThePath() {
+        let snapshot = SnapshotID(unchecked: "abc123")
+        let root = ResticClient.listArguments(snapshot: snapshot, paths: ["/"], recursive: false)
+        #expect(root == ["ls", "--json", "abc123", "/"])
+
+        let several = ResticClient.listArguments(
+            snapshot: snapshot,
+            paths: ["/etc", "/srv"],
+            recursive: false
+        )
+        // One invocation for both, which is what restic charges the same price
+        // for: the cost is the index load, not the listing.
+        #expect(several == ["ls", "--json", "abc123", "/etc", "/srv"])
+
+        let whole = ResticClient.listArguments(snapshot: snapshot, paths: [], recursive: true)
+        #expect(whole == ["ls", "--json", "--recursive", "abc123"])
+    }
+
+    @Test("lists several directories in one restic run", .enabled(if: resticAvailable))
+    func listsSeveralDirectoriesAtOnce() async throws {
+        let (client, snapshot) = try await Self.makeRepository()
+
+        // Find the data root inside the snapshot, then its nested folder.
+        var root = "/"
+        var dataRoot = "/"
+        while true {
+            let children = try await client.children(ofSnapshot: snapshot, path: root)
+            guard children.count == 1, let only = children.first, only.isDirectory else { break }
+            dataRoot = only.path
+            root = only.path
+        }
+        let nested = dataRoot + "/nested"
+
+        let groups = try await client.children(ofSnapshot: snapshot, paths: [dataRoot, nested])
+        #expect(groups[dataRoot]?.map(\.name).sorted() == ["binary.bin", "nested", "one.txt", "two.txt"])
+        #expect(groups[nested]?.map(\.name).sorted() == ["deeper", "leaf.txt"])
+        // Only what was asked for: restic also reports the ancestors of each
+        // path, and an ancestor's entry holds only the child that led to it.
+        #expect(Set(groups.keys) == [dataRoot, nested])
+    }
+
     @Test("writes a single file out of a snapshot", .enabled(if: resticAvailable))
     func dumpsOneFile() async throws {
         let (client, snapshot) = try await Self.makeRepository()

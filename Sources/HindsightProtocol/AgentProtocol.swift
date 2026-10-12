@@ -56,6 +56,9 @@ public enum AgentRequest: Codable, Sendable, Hashable {
     case serverSettings(serverID: String)
     /// Reading a repository: the agent does it because it holds the password.
     case listSnapshotDirectory(serverID: String, snapshotID: String, path: String)
+    /// Every entry in a snapshot whose name matches, found by reading the
+    /// whole snapshot once. Capped, and the reply says whether it was.
+    case searchSnapshot(serverID: String, snapshotID: String, term: String, limit: Int)
     case extractFile(serverID: String, snapshotID: String, path: String)
     /// Assembled by the agent, saved by the app: the passwords are the agent's
     /// to read, and where the file goes is a question for a person.
@@ -400,6 +403,7 @@ public enum AgentResponse: Codable, Sendable, Hashable {
     case jobLog([JobLogLine])
     case settings(ServerSettingsReport)
     case snapshotNodes([SnapshotNodeReport])
+    case snapshotMatches(nodes: [SnapshotNodeReport], truncated: Bool)
     case extractedFile(path: String)
     case kit(RecoveryKitReport)
     case done

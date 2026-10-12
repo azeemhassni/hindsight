@@ -140,22 +140,94 @@ public struct ResticClient: Sendable {
     ///
     /// The first line of `ls --json` describes the snapshot and the rest are
     /// nodes, so the snapshot header is skipped by looking for a name.
+    /// Lists a snapshot's nodes.
+    ///
+    /// `paths` matters more than it looks. Measured against restic 0.19.1: with
+    /// no path at all, `ls` walks the entire snapshot and `--recursive` makes
+    /// no difference to that — so a pathless call to show one directory reads
+    /// every file on the server. With paths, it lists their direct contents
+    /// only, and several paths in one invocation cost the same as one, because
+    /// the time goes on loading the repository index rather than on the
+    /// listing: `restic cat config` takes 0.09s where `restic snapshots` takes
+    /// 0.75s on the same repository.
     public func list(
         snapshot: SnapshotID,
-        path: String? = nil,
-        recursive: Bool = true
+        paths: [String] = [],
+        recursive: Bool = false
     ) async throws -> [ResticNode] {
+        var nodes: [ResticNode] = []
+        try await walk(snapshot: snapshot, paths: paths, recursive: recursive) { node in
+            nodes.append(node)
+            return true
+        }
+        return nodes
+    }
+
+    /// Streams a listing, one node at a time, stopping when `body` says so.
+    ///
+    /// Streamed rather than captured because a captured listing is a wrong
+    /// listing: `ProcessRunner` caps what it collects at a few megabytes, and
+    /// a recursive `ls` of a real server runs to hundreds — the cap was
+    /// silently cutting the tail off, so a search for a file in `/var` found
+    /// nothing while the same search in `/etc` worked. Returning `false` from
+    /// `body` also ends the restic process early, which is what makes a capped
+    /// search quick rather than merely correct.
+    /// - Parameter considering: a cheap look at the raw line before it is
+    ///   decoded. Decoding is most of the cost of a listing, so a search that
+    ///   wants a handful of names out of half a million entries should say so
+    ///   here and skip the rest.
+    public func walk(
+        snapshot: SnapshotID,
+        paths: [String] = [],
+        recursive: Bool = false,
+        considering shouldDecode: ((String) -> Bool)? = nil,
+        _ body: (ResticNode) throws -> Bool
+    ) async throws {
+        let decoder = JSONDecoder.restic()
+        let arguments = Self.listArguments(snapshot: snapshot, paths: paths, recursive: recursive)
+        var failure: String = ""
+
+        for try await event in runner.stream(command(arguments)) {
+            switch event {
+            case let .line(stream, line):
+                switch stream {
+                case .standardError:
+                    failure += line + "\n"
+                case .standardOutput:
+                    guard line.hasPrefix("{"), shouldDecode?(line) ?? true,
+                          let data = line.data(using: .utf8),
+                          let node = try? decoder.decode(ResticNode.self, from: data)
+                    else { continue }
+                    guard try body(node) else { return }
+                }
+            case let .exited(exit):
+                guard exit.isSuccess else {
+                    throw ResticError.commandFailed(
+                        operation: "ls",
+                        details: failure.isEmpty
+                            ? "exited with status \(exit.terminationStatus)"
+                            : failure
+                    )
+                }
+            case .started:
+                continue
+            }
+        }
+    }
+
+    /// Split out so the argument list can be asserted on without running
+    /// anything: which arguments are passed is the whole difference between
+    /// listing one directory and reading an entire server.
+    static func listArguments(
+        snapshot: SnapshotID,
+        paths: [String],
+        recursive: Bool
+    ) -> [String] {
         var arguments = ["ls", "--json"]
         if recursive { arguments.append("--recursive") }
         arguments.append(snapshot.value)
-        if let path { arguments.append(path) }
-
-        let result = try await run(arguments, operation: "ls")
-        let decoder = JSONDecoder.restic()
-        return result.standardOutputLines.compactMap { line in
-            guard let data = line.data(using: .utf8), line.hasPrefix("{") else { return nil }
-            return try? decoder.decode(ResticNode.self, from: data)
-        }
+        arguments.append(contentsOf: paths)
+        return arguments
     }
 
     public func stats() async throws -> ResticStats {
@@ -336,24 +408,49 @@ extension ResticClient {
         ofSnapshot snapshot: SnapshotID,
         path: String
     ) async throws -> [ResticNode] {
-        let nodes = try await list(
-            snapshot: snapshot,
-            path: path == "/" ? nil : path,
-            recursive: false
-        )
-        let prefix = path == "/" ? "/" : path + "/"
-        return nodes
-            .filter { $0.path.hasPrefix(prefix) && $0.path != path }
-            .filter { node in
-                // Only direct children: restic includes the ancestors of the
-                // requested path in its output.
-                let remainder = node.path.dropFirst(prefix.count)
-                return !remainder.contains("/")
-            }
-            .sorted { left, right in
+        try await children(ofSnapshot: snapshot, paths: [path])[path] ?? []
+    }
+
+    /// Lists several directories in one invocation, keyed by directory.
+    ///
+    /// One restic process for twenty directories rather than twenty, which is
+    /// the difference between a browser that waits for the index on every click
+    /// and one that waits once.
+    ///
+    /// Only the directories actually asked for appear in the result. restic
+    /// also emits the ancestors of each requested path, and an ancestor's entry
+    /// holds just the one child that led to it — storing that as the ancestor's
+    /// contents would cache a directory as nearly empty.
+    public func children(
+        ofSnapshot snapshot: SnapshotID,
+        paths: [String]
+    ) async throws -> [String: [ResticNode]] {
+        let requested = Set(paths)
+        guard !requested.isEmpty else { return [:] }
+
+        let nodes = try await list(snapshot: snapshot, paths: paths.sorted())
+        var grouped: [String: [ResticNode]] = [:]
+        for path in requested { grouped[path] = [] }
+
+        for node in nodes {
+            let parent = Self.parentDirectory(of: node.path)
+            guard requested.contains(parent) else { continue }
+            grouped[parent]?.append(node)
+        }
+
+        for (path, children) in grouped {
+            grouped[path] = children.sorted { left, right in
                 if left.isDirectory != right.isDirectory { return left.isDirectory }
                 return left.name.localizedStandardCompare(right.name) == .orderedAscending
             }
+        }
+        return grouped
+    }
+
+    static func parentDirectory(of path: String) -> String {
+        guard path != "/", let slash = path.lastIndex(of: "/") else { return "/" }
+        let parent = String(path[path.startIndex..<slash])
+        return parent.isEmpty ? "/" : parent
     }
 
     /// Writes one file out of a snapshot, for Quick Look or a single-file

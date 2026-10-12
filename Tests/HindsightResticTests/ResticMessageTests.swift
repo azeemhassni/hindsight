@@ -138,6 +138,89 @@ struct ResticMessageTests {
         #expect(statistics.removed.bytes == 1530)
     }
 
+    /// The hand parser replaced `ISO8601DateFormatter`, which was costing
+    /// nearly all the time spent reading a listing. Dates shown against a
+    /// backup have to be right, so it is held to the formatter's own answer —
+    /// to the millisecond, because that is as far as the formatter goes:
+    /// `.withFractionalSeconds` rounds there, so on restic's nanosecond
+    /// timestamps the parser is the more exact of the two. `precision()`
+    /// covers what it keeps below that.
+    @Test(
+        "agrees with ISO8601DateFormatter",
+        arguments: [
+            "2026-10-04T11:35:34.979356+05:00",
+            "2026-10-13T00:36:42.139773478+05:00",
+            "2026-10-04T11:35:34+05:00",
+            "2026-10-04T06:35:34Z",
+            "2026-10-04T06:35:34.5Z",
+            "1999-12-31T23:59:59.999Z",
+            "2000-02-29T12:00:00-08:00",
+            "2026-01-01T00:00:00+00:00",
+            "2026-10-04T11:35:34-11:30",
+        ]
+    )
+    func agreesWithTheFormatter(_ text: String) throws {
+        let reference: Date? = {
+            let withFraction = ISO8601DateFormatter()
+            withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = withFraction.date(from: text) { return date }
+            let plain = ISO8601DateFormatter()
+            plain.formatOptions = [.withInternetDateTime]
+            return plain.date(from: text)
+        }()
+        let parsed = ResticTimestamp.parse(text)
+
+        guard let reference else {
+            // Where the formatter refuses, so must this: a timestamp nobody
+            // can read is better than a wrong one.
+            #expect(parsed == nil, "\(text) parsed to \(parsed as Any) where the formatter refused")
+            return
+        }
+        let actual = try #require(parsed, "could not parse \(text)")
+        #expect(
+            abs(actual.timeIntervalSince(reference)) < 0.001,
+            "\(text): \(actual) against \(reference)"
+        )
+    }
+
+    @Test("keeps the sub-millisecond part the formatter throws away")
+    func precision() throws {
+        let coarse = try #require(ResticTimestamp.parse("2026-10-04T00:00:00.123Z"))
+        let fine = try #require(ResticTimestamp.parse("2026-10-04T00:00:00.123456Z"))
+        #expect(abs(fine.timeIntervalSince(coarse) - 0.000_456) < 0.000_001)
+
+        // Nanosecond timestamps are what restic actually writes.
+        let nanos = try #require(ResticTimestamp.parse("2026-10-13T00:36:42.139773478+05:00"))
+        let whole = try #require(ResticTimestamp.parse("2026-10-13T00:36:42+05:00"))
+        #expect(abs(nanos.timeIntervalSince(whole) - 0.139_773_478) < 0.000_001)
+    }
+
+    @Test(
+        "refuses anything that is not a timestamp",
+        arguments: [
+            "not a date",
+            "",
+            "2026-10-04",
+            "2026-10-04T11:35:34",
+            "2026-10-04T11:35:34+05",
+            "2026-10-04T11:35:34.Z",
+            "2026-10-04T11:35:34Zjunk",
+            "2026-10-04T11:35:34+05:00trailing",
+            "20261004T113534Z",
+            "2026-10-04x11:35:34Z",
+            // `Calendar` would roll these over rather than refuse them.
+            "2026-13-04T11:35:34Z",
+            "2026-10-32T11:35:34Z",
+            "2026-10-04T25:35:34Z",
+            "2026-10-04T11:61:34Z",
+            // A leap second, which the formatter refuses and Go never writes.
+            "2026-06-30T23:59:60Z",
+        ]
+    )
+    func refusesRubbish(_ text: String) {
+        #expect(ResticTimestamp.parse(text) == nil, "\(text) should not have parsed")
+    }
+
     @Test("parses restic timestamps with and without fractional seconds")
     func parsesTimestamps() {
         #expect(ResticTimestamp.parse("2026-10-04T11:35:34.979356+05:00") != nil)

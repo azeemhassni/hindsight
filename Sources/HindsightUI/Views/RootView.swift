@@ -25,7 +25,11 @@ public struct RootView: View {
     let snapshots: (String) -> [Snapshot]
     let repositorySize: (String) -> Int64?
     let browse: (String, SnapshotID, String) async -> [SnapshotTreeNode]
+    let searchSnapshot: (String, SnapshotID, String) async -> SnapshotSearchOutcome
     let preview: (String, SnapshotID, String) -> Void
+    /// Writes a copy of one file onto the Mac. Returns nothing: it reports
+    /// through the activity log, like every other long action.
+    let saveCopy: (String, SnapshotID, String) -> Void
     /// Returns whether a kit was actually written, so onboarding can tell the
     /// difference between saving it and cancelling the dialog.
     let exportRecoveryKit: @MainActor @Sendable (String?) async -> Bool
@@ -61,7 +65,10 @@ public struct RootView: View {
         snapshots: @escaping (String) -> [Snapshot],
         repositorySize: @escaping (String) -> Int64?,
         browse: @escaping (String, SnapshotID, String) async -> [SnapshotTreeNode] = { _, _, _ in [] },
+        searchSnapshot: @escaping (String, SnapshotID, String) async -> SnapshotSearchOutcome
+            = { _, _, _ in SnapshotSearchOutcome(nodes: []) },
         preview: @escaping (String, SnapshotID, String) -> Void = { _, _, _ in },
+        saveCopy: @escaping (String, SnapshotID, String) -> Void = { _, _, _ in },
         exportRecoveryKit: @escaping @MainActor @Sendable (String?) async -> Bool = { _ in false },
         chooseRepositoryDirectory: @escaping @MainActor @Sendable () -> String? = { nil },
         recoveryKits: any RecoveryKitRegistry = InMemoryRecoveryKitRegistry(),
@@ -72,7 +79,9 @@ public struct RootView: View {
         self.snapshots = snapshots
         self.repositorySize = repositorySize
         self.browse = browse
+        self.searchSnapshot = searchSnapshot
         self.preview = preview
+        self.saveCopy = saveCopy
         self.exportRecoveryKit = exportRecoveryKit
         self.chooseRepositoryDirectory = chooseRepositoryDirectory
         self.recoveryKits = recoveryKits
@@ -316,6 +325,9 @@ public struct RootView: View {
                 loadChildren: { snapshotID, path in
                     await browse(server.id, snapshotID, path)
                 },
+                search: { snapshotID, term in
+                    await searchSnapshot(server.id, snapshotID, term)
+                },
                 onRestore: { snapshot, node in
                     let flow = flow(for: server)
                     flow.snapshotID = snapshot.id.value
@@ -324,6 +336,9 @@ public struct RootView: View {
                 },
                 onPreview: { snapshot, node in
                     preview(server.id, snapshot.id, node.path)
+                },
+                onSaveCopy: { snapshot, node in
+                    saveCopy(server.id, snapshot.id, node.path)
                 }
             )
 
