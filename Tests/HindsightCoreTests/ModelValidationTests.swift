@@ -141,12 +141,10 @@ struct ServerTests {
                 prettyName: "Ubuntu 24.04 LTS",
                 kernelRelease: "6.8.0-41-generic",
                 architecture: .aarch64
-            ),
-            coolifyVersion: "4.3.23"
+            )
         )
         let decoded = try JSONDecoder().decode(Server.self, from: JSONEncoder().encode(server))
         #expect(decoded == server)
-        #expect(decoded.isCoolifyServer)
     }
 
     @Test("rejects an invalid endpoint")

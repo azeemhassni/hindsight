@@ -18,18 +18,17 @@ struct Seed {
     let lastBackupHoursAgo: Double
     let checkPassed: Bool
     let snapshotCount: Int
-    let coolify: String?
 }
 
 let seeds = [
     Seed(id: "web-01", name: "Web 01", host: "198.51.100.10",
-         lastBackupHoursAgo: 0.4, checkPassed: true, snapshotCount: 42, coolify: "4.3.23"),
+         lastBackupHoursAgo: 0.4, checkPassed: true, snapshotCount: 42),
     Seed(id: "db-01", name: "Database 01", host: "198.51.100.11",
-         lastBackupHoursAgo: 3.2, checkPassed: true, snapshotCount: 58, coolify: nil),
+         lastBackupHoursAgo: 3.2, checkPassed: true, snapshotCount: 58),
     Seed(id: "builder", name: "Build server", host: "198.51.100.12",
-         lastBackupHoursAgo: 71, checkPassed: true, snapshotCount: 12, coolify: nil),
+         lastBackupHoursAgo: 71, checkPassed: true, snapshotCount: 12),
     Seed(id: "legacy", name: "Legacy box", host: "198.51.100.13",
-         lastBackupHoursAgo: 9, checkPassed: false, snapshotCount: 30, coolify: nil),
+         lastBackupHoursAgo: 9, checkPassed: false, snapshotCount: 30),
 ]
 
 for seed in seeds {
@@ -45,8 +44,7 @@ for seed in seeds {
                 distributionID: "ubuntu", versionID: "24.04",
                 prettyName: "Ubuntu 24.04.1 LTS", kernelRelease: "6.8.0-41-generic",
                 architecture: .aarch64
-            ),
-            coolifyVersion: seed.coolify
+            )
         )
     )
 

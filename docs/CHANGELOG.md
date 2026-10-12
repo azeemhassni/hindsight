@@ -482,3 +482,38 @@ out the health: the last backup failed and why, the integrity check found a
 problem, nothing has ever run, or the last one finished days ago. It appears
 under the health line and is read out with the sidebar row. An error is trimmed
 to one readable line; the whole thing is still in the log.
+
+## Coolify support removed
+
+Hindsight backs up and restores a Linux box. The Coolify half is gone: the API
+client, label-based resource discovery, the project → environment → resource
+tree, per-resource backup and restore, the instance backup, the Coolify tab,
+its API token, its `coolifyResource` and `resourceCapture` catalog tables, and
+the test VM it was all verified against. Around 2,400 lines deleted.
+
+What is kept is the part that earns its place. Databases are still found
+without being told where they are — by container image for anything running
+under Docker, by listening port for anything on the host — and each gets a
+logical dump over SSH with `pg_dump`, `mysqldump`, `mongodump` or Redis'
+`BGSAVE`, stored as its own tagged snapshot. That covers a Coolify-managed
+Postgres or MySQL without Hindsight knowing that Coolify exists, which was the
+only part of the integration that was ever load-bearing.
+
+Two things followed from the removal rather than being chosen:
+
+- **The zero-downtime restore mode is gone.** It only ever existed to be listed
+  as unavailable and explain that Coolify's rolling update replaces a
+  container, not its data. With no Coolify there is nothing to explain, and no
+  mode that could claim zero downtime falsely — the brief's rule is now
+  structural rather than enforced by a test. Minimal downtime and standard
+  remain, and both were always generic: staging beside the live data and
+  swapping with a rename needs a filesystem, not an orchestrator.
+- **A schedule belongs to a server.** `resourceUUID` is dropped from schedules
+  and jobs, and the unique index that allowed one schedule per server *per
+  resource* is now one schedule per server.
+
+Migration `v5-drop-coolify` drops the tables, the index and the three columns.
+Snapshots keep their `coolify:` tags: those live in the repositories, which no
+migration touches, and they are still how an old resource's history is found.
+A test migrates a populated pre-removal catalog to prove the drop works on the
+case every installed catalog is in.

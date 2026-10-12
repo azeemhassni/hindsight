@@ -16,7 +16,6 @@ public final class SettingsFlow {
     public var retention: RetentionPolicy
     public var bandwidthLimitKiB: Int?
     public var repositoryPath: String
-    public var coolifyToken: String
     public var checkRotationDivisor: Int
     public var excludePatterns: [String]
 
@@ -32,7 +31,6 @@ public final class SettingsFlow {
         var onlyOnACPower: Bool
         var retention: RetentionPolicy
         var bandwidthLimitKiB: Int?
-        var coolifyToken: String
         var checkRotationDivisor: Int
         var excludePatterns: [String]
     }
@@ -45,7 +43,6 @@ public final class SettingsFlow {
         retention: RetentionPolicy,
         bandwidthLimitKiB: Int?,
         repositoryPath: String,
-        coolifyTokenIsSet: Bool,
         checkRotationDivisor: Int,
         excludePatterns: [String]
     ) {
@@ -56,9 +53,6 @@ public final class SettingsFlow {
         self.retention = retention
         self.bandwidthLimitKiB = bandwidthLimitKiB
         self.repositoryPath = repositoryPath
-        // Never the token itself: it is in the Keychain, and reading it back
-        // into a text field to display would be a reason to move it out.
-        coolifyToken = coolifyTokenIsSet ? Self.tokenPlaceholder : ""
         self.checkRotationDivisor = checkRotationDivisor
         self.excludePatterns = excludePatterns
 
@@ -67,15 +61,10 @@ public final class SettingsFlow {
             onlyOnACPower: onlyOnACPower,
             retention: retention,
             bandwidthLimitKiB: bandwidthLimitKiB,
-            coolifyToken: coolifyTokenIsSet ? Self.tokenPlaceholder : "",
             checkRotationDivisor: checkRotationDivisor,
             excludePatterns: excludePatterns
         )
     }
-
-    /// Shown in place of a token that is already stored, so the field is not
-    /// empty and the person is not invited to retype a secret they have.
-    public static let tokenPlaceholder = "••••••••••••"
 
     public var hasChanges: Bool { update() != nil }
 
@@ -142,11 +131,6 @@ public final class SettingsFlow {
             update.excludePatterns = excludePatterns
             changed = true
         }
-        // The placeholder means "unchanged"; an empty field means "remove it".
-        if coolifyToken != original.coolifyToken, coolifyToken != Self.tokenPlaceholder {
-            update.coolifyToken = coolifyToken
-            changed = true
-        }
 
         return changed ? update : nil
     }
@@ -193,7 +177,6 @@ extension SettingsFlow {
             retention: retention,
             bandwidthLimitKiB: report.bandwidthLimitKiB,
             repositoryPath: report.repositoryPath,
-            coolifyTokenIsSet: report.coolifyTokenIsSet,
             checkRotationDivisor: report.checkRotationDivisor,
             excludePatterns: report.excludePatterns
         )

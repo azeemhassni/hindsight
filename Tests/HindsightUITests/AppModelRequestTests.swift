@@ -5,73 +5,8 @@ import Testing
 @testable import HindsightUI
 
 @MainActor
-@Suite("Model requests for resources, logs and settings")
+@Suite("Model requests for logs and settings")
 struct AppModelRequestTests {
-    private let tree = CoolifyTreeReport(
-        resources: [
-            CoolifyResourceReport(
-                uuid: "q78pdwdw3qpsm2zdmyqfu6wf",
-                name: "acme-db",
-                kind: "database",
-                projectName: "acme",
-                environmentName: "production",
-                engine: "postgresql",
-                isRunning: true,
-                volumeCount: 1,
-                lastBackupAt: nil
-            ),
-        ],
-        source: "containerLabels",
-        sourceExplanation: "Read from container labels.",
-        coolifyVersion: "4.3.23",
-        mayBeIncomplete: false
-    )
-
-    @Test("keeps a discovered tree per server")
-    func keepsTreePerServer() async {
-        let model = AppModel()
-        model.send = { request in
-            guard case .discoverCoolify = request else { return .done }
-            return .coolifyTree(self.tree)
-        }
-        await model.discoverCoolify(serverID: "web-01")
-        #expect(model.coolify["web-01"]?.resources.count == 1)
-        #expect(model.coolify["db-01"] == nil)
-        // The spinner has to stop whatever happened.
-        #expect(!model.discoveringCoolify.contains("web-01"))
-    }
-
-    @Test("a discovery failure is reported rather than leaving an empty tab")
-    func reportsDiscoveryFailure() async {
-        let model = AppModel()
-        model.send = { _ in .failed(message: "ssh: connect to host port 22: Connection refused") }
-        await model.discoverCoolify(serverID: "web-01")
-        #expect(model.coolify["web-01"] == nil)
-        #expect(model.lastError?.contains("Connection refused") == true)
-        #expect(model.activity.last?.level == .error)
-    }
-
-    @Test("asks for one resource rather than the whole server")
-    func backsUpOneResource() async {
-        let model = AppModel()
-        var sent: [AgentRequest] = []
-        model.send = { request in
-            sent.append(request)
-            if case .backUpResource = request { return .accepted(jobID: "job-9") }
-            return .status(AgentStatus(version: "test", servers: [], runningJobs: []))
-        }
-        await model.backUpResource(serverID: "web-01", resourceUUID: "abc")
-
-        #expect(sent.contains { request in
-            if case let .backUpResource(serverID, uuid) = request {
-                serverID == "web-01" && uuid == "abc"
-            } else {
-                false
-            }
-        })
-        #expect(model.activity.last?.jobID == "job-9")
-    }
-
     @Test("keeps each run's log under its own job")
     func keepsLogsPerJob() async {
         let model = AppModel()
@@ -90,8 +25,7 @@ struct AppModelRequestTests {
                         bytesAdded: 5,
                         filesNew: 1,
                         filesChanged: 0,
-                        errorText: nil,
-                        resourceUUID: nil
+                        errorText: nil
                     ),
                 ])
             case let .jobLog(jobID):
@@ -133,8 +67,7 @@ struct AppModelRequestTests {
             excludePatterns: ["/srv/cache"],
             bandwidthLimitKiB: 1024,
             checkRotationDivisor: 8,
-            repositoryPath: "/Volumes/Backups/web-01",
-            coolifyTokenIsSet: true
+            repositoryPath: "/Volumes/Backups/web-01"
         )
         model.send = { _ in .settings(report) }
 
@@ -145,8 +78,6 @@ struct AppModelRequestTests {
         #expect(flow.bandwidthLimitKiB == 1024)
         #expect(flow.excludePatterns == ["/srv/cache"])
         #expect(flow.repositoryPath == "/Volumes/Backups/web-01")
-        // A stored token is shown as a placeholder, never read back.
-        #expect(flow.coolifyToken == SettingsFlow.tokenPlaceholder)
         // Nothing has been edited, so saving must be a no-op.
         #expect(!flow.hasChanges)
     }

@@ -50,7 +50,7 @@ public enum OnboardingStep: Int, Sendable, Hashable, CaseIterable, Comparable {
             runs.
             """
         case .detectServer:
-            "Which distribution, which architecture, Docker, Coolify, disks."
+            "Which distribution, which architecture, Docker, disks."
         case .chooseRepository:
             """
             Backups are kept on this Mac. An external disk is a good choice; \
@@ -82,7 +82,6 @@ public struct OnboardingState: Sendable, Hashable {
     public var privilegeMode: Privilege?
     public var sudoAvailable: Bool?
     public var detectedPlatform: Platform?
-    public var detectedCoolifyVersion: String?
     public var repositoryPath: String?
     public var firstBackupCompleted = false
     public var recoveryKitExported = false

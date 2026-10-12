@@ -36,21 +36,19 @@ struct DatabaseDiscoveryTests {
         #expect(DatabaseDiscovery.engineForImage("") == nil)
     }
 
-    @Test("parses docker ps output, including the Coolify resource label")
+    @Test("parses docker ps output")
     func parsesContainers() {
         let lines = [
-            "app-db\tpostgres:16\tb8c1f0e2-1111",
-            "cache\tredis:7\t",
-            "web\tnginx:alpine\t",
+            "app-db\tpostgres:16",
+            "cache\tredis:7",
+            "web\tnginx:alpine",
             "",
             "malformed-line",
         ]
         let targets = DatabaseDiscovery.parseContainers(lines)
         #expect(targets.count == 2)
         #expect(targets[0].engine == .postgres)
-        #expect(targets[0].coolifyResourceUUID == "b8c1f0e2-1111")
         #expect(targets[1].engine == .redis)
-        #expect(targets[1].coolifyResourceUUID == nil)
         #expect(targets[0].displayName == "postgres in app-db")
     }
 
@@ -66,8 +64,7 @@ struct DatabaseDiscoveryTests {
             hasNice: true,
             hasIonice: true,
             dockerServerVersion: nil,
-            hasCoolifyDirectory: false,
-            coolifyContainers: [],
+            containerNames: [],
             hasTestMarker: true,
             mounts: [],
             listeningPorts: [22, 5432, 6379]
@@ -90,8 +87,7 @@ struct DatabaseDiscoveryTests {
             hasNice: true,
             hasIonice: true,
             dockerServerVersion: "27.0",
-            hasCoolifyDirectory: false,
-            coolifyContainers: [],
+            containerNames: [],
             hasTestMarker: true,
             mounts: [],
             listeningPorts: [5432]
@@ -164,14 +160,12 @@ struct DatabaseDumpCommandTests {
     func namesAndTags() {
         let target = DatabaseTarget(
             engine: .postgres,
-            location: .container(name: "db", image: "postgres:16"),
-            coolifyResourceUUID: "res-1"
+            location: .container(name: "db", image: "postgres:16")
         )
         #expect(DatabaseDumpCommand.fileName(for: target, database: "app") == "postgres-app.dump")
         let tags = DatabaseDumpCommand.tags(for: target, database: "app").map(\.rawValue)
         #expect(tags.contains("db:postgres"))
         #expect(tags.contains("dbname:app"))
-        #expect(tags.contains("coolify:res-1"))
     }
 
     @Test("says which engines give a transactional dump and which do not")

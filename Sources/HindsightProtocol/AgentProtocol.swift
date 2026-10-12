@@ -49,10 +49,6 @@ public enum AgentRequest: Codable, Sendable, Hashable {
     case trustHostKey(host: String, port: Int, keyType: String, base64Key: String)
     case probeServer(AddServerDraft)
     case addServer(AddServerDraft)
-    /// Looks for Coolify resources on a server. Runs on the agent because it
-    /// needs the ssh connection, and caches what it finds in the catalog.
-    case discoverCoolify(serverID: String)
-    case backUpResource(serverID: String, resourceUUID: String)
     /// The jobs and their log lines, for the activity view.
     case jobHistory(serverID: String, limit: Int)
     case jobLog(jobID: String)
@@ -123,8 +119,7 @@ public struct RecoveryKitReport: Codable, Sendable, Hashable {
     public var isUsable: Bool { missingPasswordServers.isEmpty && serverCount > 0 }
 }
 
-/// A server's current settings. The Coolify token is reported as set or not
-/// set, never returned: it lives in the Keychain and has no reason to travel.
+/// A server's current settings.
 public struct ServerSettingsReport: Codable, Sendable, Hashable {
     public var serverID: String
     /// Encoded `Cadence`, mirroring `ServerSettingsUpdate`.
@@ -139,7 +134,6 @@ public struct ServerSettingsReport: Codable, Sendable, Hashable {
     public var bandwidthLimitKiB: Int?
     public var checkRotationDivisor: Int
     public var repositoryPath: String
-    public var coolifyTokenIsSet: Bool
 
     public init(
         serverID: String,
@@ -153,8 +147,7 @@ public struct ServerSettingsReport: Codable, Sendable, Hashable {
         excludePatterns: [String],
         bandwidthLimitKiB: Int?,
         checkRotationDivisor: Int,
-        repositoryPath: String,
-        coolifyTokenIsSet: Bool
+        repositoryPath: String
     ) {
         self.serverID = serverID
         self.cadence = cadence
@@ -168,90 +161,6 @@ public struct ServerSettingsReport: Codable, Sendable, Hashable {
         self.bandwidthLimitKiB = bandwidthLimitKiB
         self.checkRotationDivisor = checkRotationDivisor
         self.repositoryPath = repositoryPath
-        self.coolifyTokenIsSet = coolifyTokenIsSet
-    }
-}
-
-/// A Coolify resource, as the protocol carries it.
-public struct CoolifyResourceReport: Codable, Sendable, Hashable, Identifiable {
-    public var uuid: String
-    public var name: String
-    /// "application", "service" or "database".
-    public var kind: String
-    public var projectName: String?
-    public var environmentName: String?
-    public var engine: String?
-    public var isRunning: Bool
-    public var volumeCount: Int
-    public var lastBackupAt: Date?
-
-    public var id: String { uuid }
-
-    public init(
-        uuid: String,
-        name: String,
-        kind: String,
-        projectName: String?,
-        environmentName: String?,
-        engine: String?,
-        isRunning: Bool,
-        volumeCount: Int,
-        lastBackupAt: Date?
-    ) {
-        self.uuid = uuid
-        self.name = name
-        self.kind = kind
-        self.projectName = projectName
-        self.environmentName = environmentName
-        self.engine = engine
-        self.isRunning = isRunning
-        self.volumeCount = volumeCount
-        self.lastBackupAt = lastBackupAt
-    }
-}
-
-public struct CoolifyTreeReport: Codable, Sendable, Hashable {
-    public var resources: [CoolifyResourceReport]
-    /// "api", "containerLabels" or "database".
-    public var source: String
-    public var sourceExplanation: String
-    public var coolifyVersion: String?
-    /// True when the source returned nothing but could not prove the instance
-    /// is empty — an API token scoped to a team with no servers, say.
-    public var mayBeIncomplete: Bool
-
-    public init(
-        resources: [CoolifyResourceReport],
-        source: String,
-        sourceExplanation: String,
-        coolifyVersion: String?,
-        mayBeIncomplete: Bool
-    ) {
-        self.resources = resources
-        self.source = source
-        self.sourceExplanation = sourceExplanation
-        self.coolifyVersion = coolifyVersion
-        self.mayBeIncomplete = mayBeIncomplete
-    }
-
-    /// Grouped for display: project, then environment.
-    public var grouped: [(project: String, environments: [(name: String, resources: [CoolifyResourceReport])])] {
-        var byProject: [String: [String: [CoolifyResourceReport]]] = [:]
-        for resource in resources {
-            let project = resource.projectName ?? "Ungrouped"
-            let environment = resource.environmentName ?? "default"
-            byProject[project, default: [:]][environment, default: []].append(resource)
-        }
-        return byProject.keys.sorted().map { project in
-            let environments = (byProject[project] ?? [:]).keys.sorted().map { environment in
-                (
-                    name: environment,
-                    resources: (byProject[project]?[environment] ?? [])
-                        .sorted { $0.name < $1.name }
-                )
-            }
-            return (project: project, environments: environments)
-        }
     }
 }
 
@@ -268,7 +177,6 @@ public struct JobReport: Codable, Sendable, Hashable, Identifiable {
     public var filesNew: Int?
     public var filesChanged: Int?
     public var errorText: String?
-    public var resourceUUID: String?
 
     public init(
         id: String,
@@ -281,8 +189,7 @@ public struct JobReport: Codable, Sendable, Hashable, Identifiable {
         bytesAdded: Int64?,
         filesNew: Int?,
         filesChanged: Int?,
-        errorText: String?,
-        resourceUUID: String?
+        errorText: String?
     ) {
         self.id = id
         self.kind = kind
@@ -295,7 +202,6 @@ public struct JobReport: Codable, Sendable, Hashable, Identifiable {
         self.filesNew = filesNew
         self.filesChanged = filesChanged
         self.errorText = errorText
-        self.resourceUUID = resourceUUID
     }
 
     public var succeeded: Bool { state == "succeeded" }
@@ -364,7 +270,6 @@ public struct ServerProbeReport: Codable, Sendable, Hashable {
     public var architecture: String
     public var hasPasswordlessSudo: Bool
     public var dockerVersion: String?
-    public var coolifyVersion: String?
     public var homeDirectory: String
     /// Set only when the target is a deliberately marked test machine.
     public var isTestTarget: Bool
@@ -374,7 +279,6 @@ public struct ServerProbeReport: Codable, Sendable, Hashable {
         architecture: String,
         hasPasswordlessSudo: Bool,
         dockerVersion: String?,
-        coolifyVersion: String?,
         homeDirectory: String,
         isTestTarget: Bool
     ) {
@@ -382,7 +286,6 @@ public struct ServerProbeReport: Codable, Sendable, Hashable {
         self.architecture = architecture
         self.hasPasswordlessSudo = hasPasswordlessSudo
         self.dockerVersion = dockerVersion
-        self.coolifyVersion = coolifyVersion
         self.homeDirectory = homeDirectory
         self.isTestTarget = isTestTarget
     }
@@ -479,8 +382,6 @@ public struct ServerSettingsUpdate: Codable, Sendable, Hashable {
     public var excludePatterns: [String]?
     public var bandwidthLimitKiB: Int?
     public var checkRotationDivisor: Int?
-    /// Stored in the Keychain by the agent, never written to the catalog.
-    public var coolifyToken: String?
 
     public init(serverID: String) {
         self.serverID = serverID
@@ -495,7 +396,6 @@ public enum AgentResponse: Codable, Sendable, Hashable {
     case probe(ServerProbeReport)
     case serverAdded(serverID: String)
     case restoreAuthorization(token: String, expiresAt: Date)
-    case coolifyTree(CoolifyTreeReport)
     case jobs([JobReport])
     case jobLog([JobLogLine])
     case settings(ServerSettingsReport)

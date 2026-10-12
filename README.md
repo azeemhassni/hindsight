@@ -10,16 +10,16 @@ A server that is compromised can add to its own history; it cannot rewrite or
 delete it. Chunking, deduplication, compression and encryption are
 [restic]'s — Hindsight invents no formats of its own.
 
-Servers running [Coolify] get first-class treatment: the project → environment
-→ resource tree, per-resource backup and restore, and an instance backup that
-captures the pieces a Coolify rebuild cannot do without.
+Databases are not copied as files: Postgres, MySQL, MariaDB, MongoDB and Redis
+are found on the host and inside Docker containers, and each gets a logical
+dump — `pg_dump`, `mysqldump` and their equivalents — run over SSH alongside
+the filesystem backup.
 
 ## State
 
-Working engine and interface, with 472 tests — most of them against real
-servers in Docker and a real Coolify install in a local VM rather than against
-mocks. Onboarding a server, backing up a Coolify application or database,
-reading a run's log and restoring are all done from the window. See
+Working engine and interface, with 464 tests — most of them against real
+servers in Docker rather than against mocks. Onboarding a server, backing it
+up, reading a run's log and restoring are all done from the window. See
 `docs/PLAN.md` for what each milestone delivered and `docs/CHANGELOG.md` for
 the running log.
 
@@ -67,11 +67,10 @@ Two things worth knowing about a local install:
 |---|---|
 | `make test` | Everything that needs no server, plus the local Docker suites if the environment is up |
 | `make test-integration` | Starts the Docker environment, runs the suite, tears it down |
-| `make test-coolify` | Provisions a Coolify VM and runs the Coolify suite |
 
-`make test-integration` and `make test-coolify` fail if their environment is
-not actually up, rather than skipping every test and reporting success — a
-skipped test and a passing one look identical in a summary line.
+`make test-integration` fails if its environment is not actually up, rather
+than skipping every test and reporting success — a skipped test and a passing
+one look identical in a summary line.
 
 Restore and write tests only ever touch local targets. The guard is in the
 code, not the convention: a destructive operation in a test requires both a
@@ -82,7 +81,6 @@ there is a test that proves the guard refuses everything else.
 
 - `docs/ARCHITECTURE.md` — how it works and why
 - `docs/PLAN.md` — milestones and their acceptance criteria
-- `docs/COOLIFY.md` — Coolify's internals as measured, not as documented
 - `docs/DECISIONS.md` — decisions taken, and the open questions
 - `docs/CHANGELOG.md` — what each milestone added
 - `CLAUDE.md` — the working rules for this repository
@@ -95,5 +93,4 @@ downloaded at build time and verified against digests pinned in
 
 [restic]: https://restic.net
 [rest-server]: https://github.com/restic/rest-server
-[Coolify]: https://coolify.io
 [XcodeGen]: https://github.com/yonaskolb/XcodeGen

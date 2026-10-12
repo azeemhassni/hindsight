@@ -33,12 +33,6 @@ public final class AppModel {
     public var agentNeedsApproval = false
     /// The most recent restore outcome, so an open sheet can reflect it.
     public var lastRestoreEvent: AgentEvent?
-    /// Coolify resources per server, as last discovered.
-    public var coolify: [String: CoolifyTreeReport] = [:]
-    public var discoveringCoolify: Set<String> = []
-    /// Why the last look for Coolify resources failed, per server. Kept so the
-    /// Coolify view can say so itself rather than only in the activity log.
-    public var coolifyFailures: [String: String] = [:]
     /// Job history per server, and the log of whichever job is open.
     public var jobs: [String: [JobReport]] = [:]
     public var jobLogs: [String: [JobLogLine]] = [:]
@@ -353,38 +347,6 @@ public final class AppModel {
         }
     }
 
-    // MARK: Coolify
-
-    public func discoverCoolify(serverID: String) async {
-        guard let send else { return }
-        discoveringCoolify.insert(serverID)
-        defer { discoveringCoolify.remove(serverID) }
-        switch await send(.discoverCoolify(serverID: serverID)) {
-        case let .coolifyTree(report):
-            coolify[serverID] = report
-            coolifyFailures[serverID] = nil
-        case let .failed(message):
-            lastError = message
-            coolifyFailures[serverID] = message
-            append(.init(level: .error, message: message, jobID: nil))
-        default:
-            coolifyFailures[serverID] = "The agent did not answer."
-        }
-    }
-
-    public func backUpResource(serverID: String, resourceUUID: String) async {
-        guard let send else { return }
-        switch await send(.backUpResource(serverID: serverID, resourceUUID: resourceUUID)) {
-        case let .accepted(jobID):
-            append(.init(level: .info, message: "Backing up \(resourceUUID).", jobID: jobID))
-        case let .failed(message):
-            lastError = message
-            append(.init(level: .error, message: message, jobID: nil))
-        default:
-            break
-        }
-        await refresh()
-    }
 
     /// Asks the agent to exit so launchd starts the version in this bundle.
     public func restartAgent() async {

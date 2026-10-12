@@ -4,26 +4,23 @@ import HindsightSchedule
 
 public struct ScheduledEntry: Sendable, Hashable {
     public var serverID: ServerID
-    public var resourceUUID: String?
     public var schedule: Schedule
     public var repositoryPath: String
     public var lastFiredAt: Date?
 
     public init(
         serverID: ServerID,
-        resourceUUID: String? = nil,
         schedule: Schedule,
         repositoryPath: String,
         lastFiredAt: Date? = nil
     ) {
         self.serverID = serverID
-        self.resourceUUID = resourceUUID
         self.schedule = schedule
         self.repositoryPath = repositoryPath
         self.lastFiredAt = lastFiredAt
     }
 
-    var key: String { serverID.value + "\u{0}" + (resourceUUID ?? "") }
+    var key: String { serverID.value }
 }
 
 public struct SchedulerStatus: Sendable, Hashable {
@@ -76,17 +73,16 @@ public actor Scheduler {
         entries[entry.key] = entry
     }
 
-    public func remove(serverID: ServerID, resourceUUID: String? = nil) {
+    public func remove(serverID: ServerID) {
         entries[ScheduledEntry(
             serverID: serverID,
-            resourceUUID: resourceUUID,
             schedule: try! Schedule(cadence: .hourly),
             repositoryPath: ""
         ).key] = nil
     }
 
-    public func markFired(serverID: ServerID, resourceUUID: String? = nil, at date: Date) {
-        let key = serverID.value + "\u{0}" + (resourceUUID ?? "")
+    public func markFired(serverID: ServerID, at date: Date) {
+        let key = serverID.value
         entries[key]?.lastFiredAt = date
     }
 

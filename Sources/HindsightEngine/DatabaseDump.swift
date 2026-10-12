@@ -155,7 +155,6 @@ public enum DatabaseDumpCommand {
     public static func tags(for target: DatabaseTarget, database: String?) -> [SnapshotTag] {
         var tags: [SnapshotTag] = [.hindsight, .databaseEngine(target.engine.rawValue)]
         if let database { tags.append(.databaseName(database)) }
-        if let uuid = target.coolifyResourceUUID { tags.append(.coolifyResource(uuid)) }
         return tags
     }
 }

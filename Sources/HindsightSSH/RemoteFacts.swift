@@ -28,8 +28,8 @@ public struct RemoteFacts: Hashable, Sendable, Codable {
     /// would be recorded as a successful backup of nothing.
     public var hasBash: Bool
     public var dockerServerVersion: String?
-    public var hasCoolifyDirectory: Bool
-    public var coolifyContainers: [String]
+    /// The names of the containers running on the server.
+    public var containerNames: [String]
     /// Present only on machines deliberately marked as throwaway test targets.
     public var hasTestMarker: Bool
     public var mounts: [RemoteMount]
@@ -43,8 +43,7 @@ public struct RemoteFacts: Hashable, Sendable, Codable {
         hasIonice: Bool,
         hasBash: Bool = false,
         dockerServerVersion: String?,
-        hasCoolifyDirectory: Bool,
-        coolifyContainers: [String],
+        containerNames: [String],
         hasTestMarker: Bool,
         mounts: [RemoteMount],
         listeningPorts: [Int]
@@ -56,18 +55,13 @@ public struct RemoteFacts: Hashable, Sendable, Codable {
         self.hasIonice = hasIonice
         self.hasBash = hasBash
         self.dockerServerVersion = dockerServerVersion
-        self.hasCoolifyDirectory = hasCoolifyDirectory
-        self.coolifyContainers = coolifyContainers
+        self.containerNames = containerNames
         self.hasTestMarker = hasTestMarker
         self.mounts = mounts
         self.listeningPorts = listeningPorts
     }
 
     public var hasDocker: Bool { dockerServerVersion != nil }
-
-    public var looksLikeCoolify: Bool {
-        hasCoolifyDirectory || coolifyContainers.contains("coolify")
-    }
 
     /// `ionice` is missing from many minimal images, so the prefix degrades to
     /// `nice` alone rather than failing the run.
@@ -98,7 +92,6 @@ enum RemoteFactsProbe {
     if command -v ionice >/dev/null 2>&1; then echo "has_ionice=1"; else echo "has_ionice=0"; fi
     if [ -x /bin/bash ] || command -v bash >/dev/null 2>&1; then echo "has_bash=1"; else echo "has_bash=0"; fi
     if sudo -n true >/dev/null 2>&1; then echo "has_sudo=1"; else echo "has_sudo=0"; fi
-    if [ -d /data/coolify ]; then echo "coolify_dir=1"; else echo "coolify_dir=0"; fi
     if [ -f /etc/hindsight-test-target ]; then echo "test_marker=1"; else echo "test_marker=0"; fi
     docker_version="$(docker version --format '{{.Server.Version}}' 2>/dev/null)"
     if [ -z "$docker_version" ]; then
@@ -170,8 +163,7 @@ enum RemoteFactsProbe {
             hasIonice: values["has_ionice"] == "1",
             hasBash: values["has_bash"] == "1",
             dockerServerVersion: dockerVersion,
-            hasCoolifyDirectory: values["coolify_dir"] == "1",
-            coolifyContainers: containers,
+            containerNames: containers,
             hasTestMarker: values["test_marker"] == "1",
             mounts: mounts,
             listeningPorts: ports.sorted()

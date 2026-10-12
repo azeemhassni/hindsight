@@ -5,7 +5,6 @@ public struct QueuedJob: Sendable, Hashable, Identifiable {
     public var id: JobID
     public var serverID: ServerID
     public var kind: JobKind
-    public var resourceUUID: String?
     /// Jobs that name the same repository never run at the same time.
     public var repositoryPath: String
     public var queuedAt: Date
@@ -14,14 +13,12 @@ public struct QueuedJob: Sendable, Hashable, Identifiable {
         id: JobID = .generate(),
         serverID: ServerID,
         kind: JobKind,
-        resourceUUID: String? = nil,
         repositoryPath: String,
         queuedAt: Date = Date()
     ) {
         self.id = id
         self.serverID = serverID
         self.kind = kind
-        self.resourceUUID = resourceUUID
         self.repositoryPath = repositoryPath
         self.queuedAt = queuedAt
     }

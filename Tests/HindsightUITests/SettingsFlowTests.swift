@@ -25,7 +25,6 @@ struct SettingsFlowTests {
             retention: .filesystemDefault,
             bandwidthLimitKiB: nil,
             repositoryPath: "/Volumes/Backups/repos/web-01",
-            coolifyTokenIsSet: true,
             checkRotationDivisor: 4,
             excludePatterns: ["/srv/cache"]
         )
@@ -54,33 +53,6 @@ struct SettingsFlowTests {
         #expect(update.keepWeekly == nil)
         #expect(update.cadence == nil)
         #expect(update.excludePatterns == nil)
-        #expect(update.coolifyToken == nil)
-    }
-
-    @Test("does not resend a token that was never retyped")
-    func doesNotResendStoredToken() async throws {
-        let captured = Captured()
-        let flow = try makeFlow(captured: captured)
-        // The field shows a placeholder for a token that is already stored;
-        // leaving it alone must not overwrite the real one.
-        #expect(flow.coolifyToken == SettingsFlow.tokenPlaceholder)
-        flow.onlyOnACPower = false
-        _ = await flow.save()
-
-        let update = try #require(await captured.updates.first)
-        #expect(update.coolifyToken == nil)
-        #expect(update.onlyOnACPower == false)
-    }
-
-    @Test("an emptied token field removes the stored token")
-    func emptyTokenRemovesIt() async throws {
-        let captured = Captured()
-        let flow = try makeFlow(captured: captured)
-        flow.coolifyToken = ""
-        _ = await flow.save()
-
-        let update = try #require(await captured.updates.first)
-        #expect(update.coolifyToken == "")
     }
 
     @Test("refuses to save a policy that keeps nothing")
@@ -132,7 +104,6 @@ struct SettingsFlowTests {
             retention: .filesystemDefault,
             bandwidthLimitKiB: nil,
             repositoryPath: "/tmp",
-            coolifyTokenIsSet: false,
             checkRotationDivisor: 4,
             excludePatterns: []
         )

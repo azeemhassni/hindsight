@@ -43,7 +43,6 @@ struct OnboardingControllerTests {
         architecture: "x86_64",
         hasPasswordlessSudo: false,
         dockerVersion: "27.3.1",
-        coolifyVersion: "4.3.23",
         homeDirectory: "/root",
         isTestTarget: false
     )
@@ -104,7 +103,6 @@ struct OnboardingControllerTests {
         #expect(controller.state.privilegeMode == nil)
         #expect(controller.state.blockingReason?.contains("sudo") == true)
         #expect(controller.state.detectedPlatform?.prettyName == "Ubuntu 24.04.1 LTS")
-        #expect(controller.state.detectedCoolifyVersion == "4.3.23")
     }
 
     @Test("connecting as root is enough on its own")
@@ -238,7 +236,6 @@ struct OnboardingProbeFailureTests {
                     architecture: "aarch64",
                     hasPasswordlessSudo: false,
                     dockerVersion: nil,
-                    coolifyVersion: nil,
                     homeDirectory: "/root",
                     isTestTarget: true
                 )
@@ -276,7 +273,6 @@ struct OnboardingProbeFailureTests {
                     architecture: "x86_64",
                     hasPasswordlessSudo: false,
                     dockerVersion: nil,
-                    coolifyVersion: nil,
                     homeDirectory: "/root",
                     isTestTarget: false
                 )

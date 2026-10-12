@@ -1,7 +1,7 @@
 SWIFT ?= swift
 CONFIGURATION ?= Debug
 
-.PHONY: all build vendor app test test-integration test-coolify lint clean
+.PHONY: all build vendor app test test-integration lint clean
 
 all: build
 
@@ -19,19 +19,6 @@ test-integration:
 	set -a; eval "$$(./scripts/testenv.sh env)"; set +a; \
 		HINDSIGHT_ALLOW_DESTRUCTIVE_TESTS=1 HINDSIGHT_REQUIRE_TEST_ENV=1 $(SWIFT) test; \
 		status=$$?; ./scripts/testenv.sh down; exit $$status
-
-test-coolify:
-	./scripts/coolify-testenv.sh up
-	@set -a; eval "$$(./scripts/testenv.sh env)"; eval "$$(./scripts/coolify-testenv.sh env)"; set +a; \
-		HINDSIGHT_TEST_COOLIFY=1 HINDSIGHT_REQUIRE_COOLIFY_ENV=1 \
-			$(SWIFT) test --filter "CoolifyIntegrationTests|EnvironmentPresenceTests"; \
-		status=$$?; \
-		if [ $$status -ne 0 ]; then \
-			echo ""; \
-			echo "If these were skipped, the virtual machine was unreachable."; \
-			echo "OrbStack machine networking sometimes drops; restarting OrbStack restores it."; \
-		fi; \
-		exit $$status
 
 # Builds Hindsight.app, signed with the Developer ID identity named in
 # App/project.yml. `HINDSIGHT_UNSIGNED=1` builds without signing, which is the

@@ -43,8 +43,7 @@ extension AgentCore {
             bytesAdded: record.bytesAdded,
             filesNew: record.filesNew,
             filesChanged: record.filesChanged,
-            errorText: record.errorText,
-            resourceUUID: record.resourceUUID
+            errorText: record.errorText
         )
     }
 }

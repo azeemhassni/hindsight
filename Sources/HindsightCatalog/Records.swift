@@ -17,7 +17,6 @@ public struct ServerRecord: Codable, FetchableRecord, PersistableRecord, Hashabl
     public var authentication: SSHAuthentication
     public var privilege: Privilege
     public var platform: Platform?
-    public var coolifyVersion: String?
     public var createdAt: Date
     public var lastSeenAt: Date?
     public var pausedAt: Date?
@@ -31,7 +30,6 @@ public struct ServerRecord: Codable, FetchableRecord, PersistableRecord, Hashabl
         authentication = server.authentication
         privilege = server.privilege
         platform = server.platform
-        coolifyVersion = server.coolifyVersion
         self.createdAt = createdAt
         self.lastSeenAt = lastSeenAt
         pausedAt = server.pausedAt
@@ -45,7 +43,6 @@ public struct ServerRecord: Codable, FetchableRecord, PersistableRecord, Hashabl
             authentication: authentication,
             privilege: privilege,
             platform: platform,
-            coolifyVersion: coolifyVersion,
             pausedAt: pausedAt
         )
     }
@@ -95,7 +92,6 @@ public struct ScheduleRecord: Codable, FetchableRecord, PersistableRecord, Hasha
 
     public var id: String
     public var serverId: String
-    public var resourceUUID: String?
     public var cadence: Cadence
     public var onlyOnACPower: Bool
     public var timeZoneIdentifier: String?
@@ -105,14 +101,12 @@ public struct ScheduleRecord: Codable, FetchableRecord, PersistableRecord, Hasha
     public init(
         id: String,
         serverId: String,
-        resourceUUID: String? = nil,
         schedule: Schedule,
         nextFireAt: Date? = nil,
         enabled: Bool = true
     ) {
         self.id = id
         self.serverId = serverId
-        self.resourceUUID = resourceUUID
         cadence = schedule.cadence
         onlyOnACPower = schedule.onlyOnACPower
         timeZoneIdentifier = schedule.timeZoneIdentifier
@@ -219,7 +213,6 @@ public struct JobRecord: Codable, FetchableRecord, PersistableRecord, Hashable, 
     public var id: String
     public var serverId: String?
     public var kind: JobKind
-    public var resourceUUID: String?
     public var state: JobState
     public var queuedAt: Date
     public var startedAt: Date?
@@ -235,14 +228,12 @@ public struct JobRecord: Codable, FetchableRecord, PersistableRecord, Hashable, 
         id: JobID,
         serverId: ServerID?,
         kind: JobKind,
-        resourceUUID: String? = nil,
         state: JobState = .queued,
         queuedAt: Date = Date()
     ) {
         self.id = id.value
         self.serverId = serverId?.value
         self.kind = kind
-        self.resourceUUID = resourceUUID
         self.state = state
         self.queuedAt = queuedAt
     }
@@ -316,40 +307,5 @@ public struct IntegrityCheckRecord: Codable, FetchableRecord, PersistableRecord,
         self.subsetIndex = subsetIndex
         self.subsetDivisor = subsetDivisor
         self.startedAt = startedAt
-    }
-}
-
-public struct CoolifyResourceRecord: Codable, FetchableRecord, PersistableRecord, Hashable, Sendable {
-    public static let databaseTableName = "coolifyResource"
-
-    public var uuid: String
-    public var serverId: String
-    public var kind: String
-    public var name: String
-    public var projectName: String?
-    public var environmentName: String?
-    /// Which path produced this: the API, container labels, or Coolify's own
-    /// database. Kept so the interface can say how complete the picture is.
-    public var discoverySource: String
-    public var lastSeenAt: Date
-
-    public init(
-        uuid: String,
-        serverId: String,
-        kind: String,
-        name: String,
-        projectName: String?,
-        environmentName: String?,
-        discoverySource: String,
-        lastSeenAt: Date = Date()
-    ) {
-        self.uuid = uuid
-        self.serverId = serverId
-        self.kind = kind
-        self.name = name
-        self.projectName = projectName
-        self.environmentName = environmentName
-        self.discoverySource = discoverySource
-        self.lastSeenAt = lastSeenAt
     }
 }

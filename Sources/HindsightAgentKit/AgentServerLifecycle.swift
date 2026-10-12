@@ -45,7 +45,6 @@ extension AgentCore {
             try? await deleteSecret(.repositoryPassword(id))
             try? await deleteSecret(.restServerCredential(id))
         }
-        try? await deleteSecret(.coolifyToken(id))
 
         do {
             try catalog.deleteServer(id)

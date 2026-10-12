@@ -89,7 +89,6 @@ public final class OnboardingController: Identifiable {
             kernelRelease: "",
             architecture: Architecture(unameMachine: report.architecture) ?? .x86_64
         )
-        state.detectedCoolifyVersion = report.coolifyVersion
     }
 
     public func chooseRepositoryPath() {

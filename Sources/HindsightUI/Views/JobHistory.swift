@@ -163,7 +163,6 @@ struct JobRow: View {
         if let started = job.startedAt, let finished = job.finishedAt {
             parts.append(Format.duration(finished.timeIntervalSince(started)))
         }
-        if job.resourceUUID != nil { parts.append("one resource") }
         if !job.succeeded, job.isFinished { parts.append(job.state) }
         return parts.joined(separator: " · ")
     }

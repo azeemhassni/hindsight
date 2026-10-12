@@ -93,7 +93,6 @@ struct SSHIntegrationTests {
         #expect(facts.hasNice)
         #expect(facts.hasIonice)
         #expect(facts.hasTestMarker)
-        #expect(!facts.hasCoolifyDirectory)
         #expect(facts.listeningPorts.contains(22))
         #expect(!facts.mounts.isEmpty)
         #expect(facts.lowPriorityPrefix == ["nice", "-n", "19", "ionice", "-c3"])

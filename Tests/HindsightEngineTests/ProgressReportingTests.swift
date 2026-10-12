@@ -19,7 +19,7 @@ struct ProgressReportingTests {
             bytesDone: 17_970_000_000,
             totalBytes: 17_970_000_000,
             phase: phase,
-            detail: phase == "dumpingDatabases" ? "Dumping coolify-db (3 of 11)…" : nil
+            detail: phase == "dumpingDatabases" ? "Dumping app-db (3 of 11)…" : nil
         )
     }
 

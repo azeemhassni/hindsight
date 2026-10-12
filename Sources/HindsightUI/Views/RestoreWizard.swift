@@ -319,7 +319,6 @@ struct ModeCard: View {
     private var icon: String {
         guard entry.isAvailable else { return "slash.circle" }
         return switch entry.mode {
-        case .zeroDowntime: "bolt.horizontal.circle"
         case .minimalDowntime: "timer"
         case .standard: "arrow.counterclockwise.circle"
         }

@@ -21,8 +21,7 @@ func makeServer(
             prettyName: "Ubuntu 24.04 LTS",
             kernelRelease: "6.8.0",
             architecture: .aarch64
-        ),
-        coolifyVersion: "4.3.23"
+        )
     )
 }
 
@@ -66,7 +65,7 @@ struct CatalogMigrationTests {
         let tables = [
             "server", "repository", "schedule", "retentionPolicy", "pathRule",
             "snapshot", "snapshotTag", "job", "jobEvent", "integrityCheck",
-            "coolifyResource", "resourceCapture", "restore",
+            "restore",
         ]
         try catalog.read { database in
             for table in tables {
@@ -148,6 +147,61 @@ struct CatalogMigrationTests {
         #expect(violations == 0)
     }
 
+    @Test("drops Coolify's tables and columns from a catalog that has them")
+    func migratesPastCoolify() throws {
+        let url = temporaryCatalogURL()
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let pool = try DatabasePool(path: url.path, configuration: Catalog.configuration())
+
+        // A catalog as it stood before Coolify was removed, with rows in the
+        // tables that are about to go: dropping a populated table is the case
+        // that has to work, since every installed catalog has one.
+        try CatalogSchema.migrator.migrate(pool, upTo: "v4-orphaned-rows")
+        try pool.write { database in
+            try database.execute(
+                sql: """
+                INSERT INTO server (id, name, host, port, user, authentication, privilege, createdAt, coolifyVersion)
+                VALUES ('web-01', 'Web', '198.51.100.10', 22, 'root', '{}', 'root', '2026-10-01 00:00:00.000', '4.3.23')
+                """
+            )
+            try database.execute(
+                sql: """
+                INSERT INTO coolifyResource (uuid, serverId, kind, name, discoverySource, lastSeenAt)
+                VALUES ('abc', 'web-01', 'database', 'acme-db', 'api', '2026-10-01 00:00:00.000')
+                """
+            )
+            try database.execute(
+                sql: """
+                INSERT INTO schedule (id, serverId, resourceUUID, cadence, onlyOnACPower, enabled)
+                VALUES ('s1', 'web-01', 'abc', x'7b7d', 0, 1)
+                """
+            )
+        }
+
+        let catalog = try Catalog.open(at: url)
+        let (applied, tables, serverColumns, violations, servers) = try catalog.read { database in
+            (
+                try CatalogSchema.migrator.appliedMigrations(database),
+                [
+                    try database.tableExists("coolifyResource"),
+                    try database.tableExists("resourceCapture"),
+                ],
+                try database.columns(in: "server").map(\.name),
+                try Row.fetchAll(database, sql: "PRAGMA foreign_key_check").count,
+                try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM server") ?? -1
+            )
+        }
+        #expect(applied == CatalogSchema.migrator.migrations)
+        #expect(tables == [false, false])
+        #expect(!serverColumns.contains("coolifyVersion"))
+        #expect(violations == 0)
+        // The server itself survives: only Coolify's part of it goes.
+        #expect(servers == 1)
+    }
+
     @Test("enforces foreign keys so an orphaned row cannot be written")
     func enforcesForeignKeys() throws {
         let catalog = try Catalog.inMemory()
@@ -170,7 +224,6 @@ struct CatalogRoundTripTests {
         let loaded = try #require(try catalog.server(server.id))
         #expect(loaded == server)
         #expect(loaded.platform?.architecture == .aarch64)
-        #expect(loaded.isCoolifyServer)
         try #expect(catalog.servers().count == 1)
     }
 
@@ -219,17 +272,17 @@ struct CatalogRoundTripTests {
         let newer = try makeSnapshot(
             id: "bb22",
             time: Date(timeIntervalSince1970: 2_000),
-            tags: ["hindsight", SnapshotTag.coolifyResource("res-1").rawValue]
+            tags: ["hindsight", SnapshotTag.databaseName("res-1").rawValue]
         )
         try catalog.record([older, newer], inRepository: "r1")
 
         let all = try catalog.snapshots(inRepository: "r1")
         #expect(all.map(\.id.value) == ["bb22", "aa11"])
-        #expect(all.first?.tags.contains(.coolifyResource("res-1")) == true)
+        #expect(all.first?.tags.contains(.databaseName("res-1")) == true)
         try #expect(catalog.snapshot(older.id) == older)
     }
 
-    @Test("finds a resource's whole history by tag alone")
+    @Test("finds a tag's whole history by tag alone")
     func findsByTag() throws {
         let catalog = try Catalog.inMemory()
         let server = try makeServer()
@@ -239,18 +292,18 @@ struct CatalogRoundTripTests {
         let tagged = try makeSnapshot(
             id: "cc33",
             time: Date(timeIntervalSince1970: 3_000),
-            tags: [SnapshotTag.coolifyResource("res-1").rawValue]
+            tags: [SnapshotTag.databaseName("res-1").rawValue]
         )
         let other = try makeSnapshot(
             id: "dd44",
             time: Date(timeIntervalSince1970: 4_000),
-            tags: [SnapshotTag.coolifyResource("res-2").rawValue]
+            tags: [SnapshotTag.databaseName("res-2").rawValue]
         )
         try catalog.record([tagged, other], inRepository: "r1")
 
-        let history = try catalog.snapshots(taggedWith: .coolifyResource("res-1"))
+        let history = try catalog.snapshots(taggedWith: .databaseName("res-1"))
         #expect(history.map(\.id.value) == ["cc33"])
-        try #expect(catalog.snapshots(taggedWith: .coolifyResource("missing")).isEmpty)
+        try #expect(catalog.snapshots(taggedWith: .databaseName("missing")).isEmpty)
     }
 
     @Test("re-recording a snapshot replaces its tags rather than accumulating them")

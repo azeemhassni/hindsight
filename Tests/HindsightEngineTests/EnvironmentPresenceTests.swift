@@ -9,7 +9,7 @@ import Testing
 /// reported success. A skipped test looks exactly like a passing one in a
 /// summary line, which makes silence the most dangerous result a test can give.
 ///
-/// `make test-integration` and `make test-coolify` set the flags below, so a
+/// `make test-integration` sets the flags below, so a
 /// missing environment fails loudly instead of quietly proving nothing.
 @Suite("Test environment presence")
 struct EnvironmentPresenceTests {
@@ -31,21 +31,6 @@ struct EnvironmentPresenceTests {
             """
             HINDSIGHT_ALLOW_DESTRUCTIVE_TESTS is not set, so the restore tests \
             would have skipped.
-            """
-        )
-    }
-
-    @Test(
-        "the Coolify virtual machine is up when the caller said it should be",
-        .enabled(if: ProcessInfo.processInfo.environment["HINDSIGHT_REQUIRE_COOLIFY_ENV"] == "1")
-    )
-    func coolifyEnvironmentIsPresent() {
-        #expect(
-            CoolifyTestEnvironment.isAvailable,
-            """
-            HINDSIGHT_REQUIRE_COOLIFY_ENV is set but the Coolify virtual \
-            machine is not reachable, so its tests would have skipped. Run \
-            scripts/coolify-testenv.sh up.
             """
         )
     }

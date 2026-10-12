@@ -71,7 +71,6 @@ public struct Server: Identifiable, Hashable, Sendable, Codable {
     /// Discovered during onboarding and refreshed on each run, so it is absent
     /// until a server has been reached at least once.
     public var platform: Platform?
-    public var coolifyVersion: String?
     /// When backups were paused, or nil while they are running.
     ///
     /// A pause stops the schedule only. Maintenance still keeps the repository
@@ -86,7 +85,6 @@ public struct Server: Identifiable, Hashable, Sendable, Codable {
         authentication: SSHAuthentication,
         privilege: Privilege,
         platform: Platform? = nil,
-        coolifyVersion: String? = nil,
         pausedAt: Date? = nil
     ) throws {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { throw ValidationError.emptyServerName }
@@ -96,10 +94,8 @@ public struct Server: Identifiable, Hashable, Sendable, Codable {
         self.authentication = authentication
         self.privilege = privilege
         self.platform = platform
-        self.coolifyVersion = coolifyVersion
         self.pausedAt = pausedAt
     }
 
-    public var isCoolifyServer: Bool { coolifyVersion != nil }
     public var isPaused: Bool { pausedAt != nil }
 }

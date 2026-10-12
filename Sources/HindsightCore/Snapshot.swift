@@ -49,9 +49,6 @@ public struct Snapshot: Identifiable, Hashable, Sendable, Codable {
 public enum SnapshotTag: Hashable, Sendable {
     case hindsight
     case profile(String)
-    case coolifyResource(String)
-    case coolifyProject(String)
-    case coolifyEnvironment(String)
     case databaseEngine(String)
     case databaseName(String)
     case restore(JobID)
@@ -61,9 +58,6 @@ public enum SnapshotTag: Hashable, Sendable {
         switch self {
         case .hindsight: "hindsight"
         case let .profile(name): "profile:\(name)"
-        case let .coolifyResource(uuid): "coolify:\(uuid)"
-        case let .coolifyProject(name): "coolify-project:\(name)"
-        case let .coolifyEnvironment(name): "coolify-env:\(name)"
         case let .databaseEngine(engine): "db:\(engine)"
         case let .databaseName(name): "dbname:\(name)"
         case let .restore(id): "restore:\(id.value)"
@@ -80,9 +74,6 @@ public enum SnapshotTag: Hashable, Sendable {
         guard !value.isEmpty else { return nil }
         switch namespace {
         case "profile": self = .profile(value)
-        case "coolify": self = .coolifyResource(value)
-        case "coolify-project": self = .coolifyProject(value)
-        case "coolify-env": self = .coolifyEnvironment(value)
         case "db": self = .databaseEngine(value)
         case "dbname": self = .databaseName(value)
         case "restore": self = .restore(JobID(unchecked: value))

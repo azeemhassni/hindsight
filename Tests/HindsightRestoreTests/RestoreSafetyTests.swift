@@ -17,8 +17,7 @@ private func facts(hasTestMarker: Bool) -> RemoteFacts {
         hasIonice: true,
         hasBash: true,
         dockerServerVersion: nil,
-        hasCoolifyDirectory: false,
-        coolifyContainers: [],
+        containerNames: [],
         hasTestMarker: hasTestMarker,
         mounts: [],
         listeningPorts: [22]
@@ -60,7 +59,7 @@ struct DestructiveOperationGuardTests {
 
     @Test(
         "refuses a local address without the marker",
-        arguments: ["127.0.0.1", "localhost", "192.168.1.50", "172.17.0.2", "coolify.orb.local"]
+        arguments: ["127.0.0.1", "localhost", "192.168.1.50", "172.17.0.2", "testbox.orb.local"]
     )
     func refusesUnmarkedLocalHosts(_ host: String) throws {
         // Someone's own machine, or a local VM that matters, is local but is
@@ -442,8 +441,7 @@ private func markedFacts() -> RemoteFacts {
         hasIonice: true,
         hasBash: true,
         dockerServerVersion: nil,
-        hasCoolifyDirectory: false,
-        coolifyContainers: [],
+        containerNames: [],
         hasTestMarker: true,
         mounts: [],
         listeningPorts: [22]

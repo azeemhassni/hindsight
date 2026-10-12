@@ -7,7 +7,6 @@ import HindsightProtocol
 /// Writing settings.
 ///
 /// The agent applies them because it is the only writer of the catalog, and
-/// because a Coolify token belongs in the Keychain rather than in a database
 /// the app could read from disk.
 extension AgentCore {
     func apply(_ update: ServerSettingsUpdate) async throws {
@@ -21,22 +20,12 @@ extension AgentCore {
         try applyPathRules(update, serverID: id)
         try applyRotation(update, serverID: id)
         try applyBandwidthLimit(update, serverID: id)
-
-        if let token = update.coolifyToken {
-            // Never the catalog: a token is a credential, and the catalog is a
-            // plain file the app can read.
-            if token.isEmpty {
-                try await deleteSecret(.coolifyToken(id))
-            } else {
-                try await writeSecret(token, for: .coolifyToken(id))
-            }
-        }
     }
 
     private func applySchedule(_ update: ServerSettingsUpdate, serverID: ServerID) throws {
         guard update.cadence != nil || update.onlyOnACPower != nil else { return }
 
-        let existing = try catalog.schedules(forServer: serverID).first { $0.resourceUUID == nil }
+        let existing = try catalog.schedules(forServer: serverID).first
         let currentSchedule = try existing?.toSchedule()
 
         let cadence: Cadence = try {
@@ -135,7 +124,7 @@ extension AgentCore {
             throw AgentError.unknownServer(serverID)
         }
 
-        let schedule = try catalog.schedules(forServer: id).first { $0.resourceUUID == nil }
+        let schedule = try catalog.schedules(forServer: id).first
         let resolved = try schedule?.toSchedule()
         let retention = try catalog.retentionPolicy(forServer: id, scope: .filesystem)
         let repository = try catalog.repository(forServer: id)
@@ -153,7 +142,6 @@ extension AgentCore {
             bandwidthLimitKiB: repository?.bandwidthLimitKiB,
             checkRotationDivisor: repository?.checkRotationDivisor ?? 1,
             repositoryPath: repository?.path ?? "",
-            coolifyTokenIsSet: await hasSecret(.coolifyToken(id))
         )
     }
 }

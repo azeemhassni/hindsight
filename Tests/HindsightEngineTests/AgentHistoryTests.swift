@@ -54,27 +54,6 @@ struct AgentHistoryTests {
         #expect(job.bytesAdded == 4096)
     }
 
-    @Test("a per-resource run says so, so it is not read as a whole-server backup")
-    func marksResourceRuns() async throws {
-        let catalog = try Catalog.inMemory()
-        let server = try server(in: catalog)
-        try catalog.save(
-            JobRecord(
-                id: JobID(unchecked: "job-2"),
-                serverId: server.id,
-                kind: .backup,
-                resourceUUID: "q78pdwdw3qpsm2zdmyqfu6wf"
-            )
-        )
-
-        let response = await core(catalog).handle(.jobHistory(serverID: server.id.value, limit: 10))
-        guard case let .jobs(reports) = response else {
-            Issue.record("expected jobs, got \(response)")
-            return
-        }
-        #expect(reports.first?.resourceUUID == "q78pdwdw3qpsm2zdmyqfu6wf")
-    }
-
     @Test("carries the log lines a run recorded, in order and with their level")
     func returnsLogLines() async throws {
         let catalog = try Catalog.inMemory()
@@ -150,7 +129,7 @@ struct AgentSettingsReportTests {
                 bandwidthLimitKiB: 2048
             )
         )
-        let secrets = InMemorySecretStore([.coolifyToken(id): "secret-token"])
+        let secrets = InMemorySecretStore([.repositoryPassword(id): "secret-token"])
         let core = AgentCore(
             configuration: .fallback,
             catalog: catalog,
@@ -166,8 +145,7 @@ struct AgentSettingsReportTests {
         #expect(report.repositoryPath == "/Volumes/Backups/web-01")
         #expect(report.checkRotationDivisor == 6)
         #expect(report.bandwidthLimitKiB == 2048)
-        // Set, but never the value: the token stays in the Keychain.
-        #expect(report.coolifyTokenIsSet)
+        // A secret the server has must not travel in a settings report.
         #expect(!"\(report)".contains("secret-token"))
     }
 

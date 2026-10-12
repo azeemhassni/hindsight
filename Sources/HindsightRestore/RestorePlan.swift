@@ -1,11 +1,9 @@
 import Foundation
 import HindsightCore
-import HindsightCoolify
 
 public enum RestoreScope: Sendable, Hashable, Codable {
     case fullServer
     case paths([String])
-    case coolifyResource(uuid: String, kind: CoolifyResourceKind)
     /// A logical dump, restored into a database rather than onto the filesystem.
     case databaseDump(database: String?)
 
@@ -14,7 +12,6 @@ public enum RestoreScope: Sendable, Hashable, Codable {
         case .fullServer: "the whole server"
         case let .paths(paths) where paths.count == 1: paths[0]
         case let .paths(paths): "\(paths.count) paths"
-        case let .coolifyResource(uuid, kind): "the \(kind.rawValue) \(uuid)"
         case let .databaseDump(database): "the database \(database ?? "dump")"
         }
     }
@@ -40,13 +37,11 @@ public enum RestoreTarget: Sendable, Hashable, Codable {
 }
 
 public enum RestoreMode: String, Sendable, Hashable, Codable, CaseIterable {
-    case zeroDowntime
     case minimalDowntime
     case standard
 
     public var title: String {
         switch self {
-        case .zeroDowntime: "Zero downtime"
         case .minimalDowntime: "Minimal downtime"
         case .standard: "Standard"
         }
@@ -54,11 +49,6 @@ public enum RestoreMode: String, Sendable, Hashable, Codable, CaseIterable {
 
     public var summary: String {
         switch self {
-        case .zeroDowntime:
-            """
-            Restores alongside the live copy, starts a second container on it, \
-            health-checks it, then switches traffic over.
-            """
         case .minimalDowntime:
             """
             Stages the restored data next to the live data, then stops, swaps, \
@@ -76,8 +66,8 @@ public struct RestoreModeAvailability: Sendable, Hashable {
     /// Always populated. When a mode is unavailable the UI must say why, and
     /// when it is available it must say what it costs.
     public var explanation: String
-    /// Non-nil only for zero-downtime, which cannot preserve writes made
-    /// between the snapshot and the switch.
+    /// Set when a mode can lose data that the explanation alone would not
+    /// make obvious.
     public var dataLossWarning: String?
 
     public init(
@@ -95,32 +85,20 @@ public struct RestoreModeAvailability: Sendable, Hashable {
 
 /// What the planner needs to know about the thing being restored.
 public struct RestoreFacts: Sendable, Hashable {
-    public var isCoolifyManaged: Bool
-    public var volumes: [CoolifyVolume]
-    public var proxy: CoolifyProxyFlavour
     /// Whether a staging directory can be created on the same filesystem as the
     /// live data, which is what makes a rename swap possible.
     public var stagingIsOnSameFilesystem: Bool
     public var isDatabase: Bool
     public var hasRunningContainer: Bool
-    public var coolifySupportsRollingUpdate: Bool
 
     public init(
-        isCoolifyManaged: Bool = false,
-        volumes: [CoolifyVolume] = [],
-        proxy: CoolifyProxyFlavour = .none,
         stagingIsOnSameFilesystem: Bool = true,
         isDatabase: Bool = false,
-        hasRunningContainer: Bool = false,
-        coolifySupportsRollingUpdate: Bool = false
+        hasRunningContainer: Bool = false
     ) {
-        self.isCoolifyManaged = isCoolifyManaged
-        self.volumes = volumes
-        self.proxy = proxy
         self.stagingIsOnSameFilesystem = stagingIsOnSameFilesystem
         self.isDatabase = isDatabase
         self.hasRunningContainer = hasRunningContainer
-        self.coolifySupportsRollingUpdate = coolifySupportsRollingUpdate
     }
 }
 
@@ -161,7 +139,6 @@ public enum RestorePlanner {
         facts: RestoreFacts
     ) -> [RestoreModeAvailability] {
         [
-            zeroDowntime(scope: scope, target: target, facts: facts),
             minimalDowntime(scope: scope, target: target, facts: facts),
             standard(scope: scope, target: target, facts: facts),
         ]
@@ -187,71 +164,6 @@ public enum RestorePlanner {
         availableModes(scope: scope, target: target, facts: facts).first ?? .standard
     }
 
-    /// Never available, with the reason spelled out.
-    ///
-    /// Coolify's own rolling update is real blue/green, but it replaces the
-    /// container, not the data: the new container is generated from the same
-    /// compose file and mounts the same named volume as the old one — see
-    /// `docs/COOLIFY.md` §9, read from `ApplicationDeploymentJob.php`.
-    ///
-    /// Restoring data without interruption would mean restoring into a new
-    /// volume and repointing the resource at it, and that volume list lives in
-    /// Coolify's own database, which Hindsight will not write to. Offering a
-    /// "zero downtime" that overwrites a shared volume under a running
-    /// container would be the dishonest kind: no interruption to requests,
-    /// while the application reads data shifting beneath it.
-    ///
-    /// The mode is still described rather than hidden, because a person
-    /// comparing options deserves to know why it is not on offer.
-    static func zeroDowntime(
-        scope: RestoreScope,
-        target: RestoreTarget,
-        facts: RestoreFacts
-    ) -> RestoreModeAvailability {
-        func unavailable(_ reason: String) -> RestoreModeAvailability {
-            RestoreModeAvailability(mode: .zeroDowntime, isAvailable: false, explanation: reason)
-        }
-
-        if case .fullServer = scope {
-            return unavailable("""
-            A whole server cannot be replaced without interruption: there is \
-            no second server to switch to.
-            """)
-        }
-
-        guard facts.isCoolifyManaged else {
-            return unavailable("""
-            Zero downtime needs something that can run a second copy and have \
-            traffic switched to it. This selection is not managed by Coolify, \
-            so Hindsight has nothing to switch.
-            """)
-        }
-
-        guard target.isInPlace else {
-            return unavailable("""
-            Zero downtime only applies to replacing live data. Restoring \
-            somewhere else does not interrupt anything in the first place.
-            """)
-        }
-
-        if !facts.hasRunningContainer {
-            return unavailable("""
-            This resource is not running, so there is no downtime to avoid. \
-            Use the standard restore.
-            """)
-        }
-
-        return unavailable("""
-        Coolify's rolling update replaces a container, not its data: the new \
-        container mounts the same volume as the old one. Restoring data \
-        without interruption would mean repointing the resource at a new \
-        volume, which only Coolify's own database can do, and Hindsight will \
-        not write to it. Use minimal downtime, which stages the restore while \
-        the resource is up and swaps it in during a brief stop — or restore as \
-        a clone to inspect the data without touching the live copy.
-        """)
-    }
-
     static func minimalDowntime(
         scope: RestoreScope,
         target: RestoreTarget,
@@ -267,7 +179,6 @@ public enum RestorePlanner {
             elsewhere does not touch the live copy, so there is no downtime.
             """)
         }
-        _ = facts.coolifySupportsRollingUpdate
         guard facts.stagingIsOnSameFilesystem else {
             return unavailable("""
             The restored data cannot be staged on the same filesystem as the \

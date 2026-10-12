@@ -143,9 +143,6 @@ struct SnapshotRow: View {
         case .metadata: parts.append("server metadata")
         case .safety: parts.append("taken before a restore")
         }
-        if let resource = snapshot.tags.first(where: { $0.hasPrefix("coolify:") }) {
-            parts.append(String(resource.dropFirst("coolify:".count)))
-        }
         return parts.joined(separator: " · ")
     }
 

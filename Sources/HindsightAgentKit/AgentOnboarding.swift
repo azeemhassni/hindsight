@@ -60,7 +60,6 @@ extension AgentCore {
             architecture: facts.platform.architecture.rawValue,
             hasPasswordlessSudo: facts.hasPasswordlessSudo,
             dockerVersion: facts.dockerServerVersion,
-            coolifyVersion: facts.looksLikeCoolify ? "detected" : nil,
             homeDirectory: facts.homeDirectory,
             isTestTarget: facts.hasTestMarker
         )

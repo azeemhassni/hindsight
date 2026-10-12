@@ -47,7 +47,7 @@ public struct DatabaseTarget: Sendable, Hashable, Codable {
         /// A service on the host itself.
         case hostService(port: Int)
         /// A database the server can reach over the network: a managed
-        /// instance, or a Coolify service reached by its container name.
+        /// instance, or a service reached by its container name.
         case networkService(host: String, port: Int)
     }
 
@@ -55,20 +55,17 @@ public struct DatabaseTarget: Sendable, Hashable, Codable {
     public var location: Location
     public var databaseName: String?
     public var user: String?
-    public var coolifyResourceUUID: String?
 
     public init(
         engine: DatabaseEngine,
         location: Location,
         databaseName: String? = nil,
-        user: String? = nil,
-        coolifyResourceUUID: String? = nil
+        user: String? = nil
     ) {
         self.engine = engine
         self.location = location
         self.databaseName = databaseName
         self.user = user
-        self.coolifyResourceUUID = coolifyResourceUUID
     }
 
     public var displayName: String {
@@ -118,7 +115,7 @@ public struct DatabaseDiscovery: Sendable {
         let result = try await client.run(
             RemoteCommand(
                 executable: "/bin/sh",
-                arguments: ["-c", "docker ps --format '{{.Names}}\t{{.Image}}\t{{.Label \"coolify.resourceUUID\"}}'"],
+                arguments: ["-c", "docker ps --format '{{.Names}}\t{{.Image}}'"],
                 requiresRoot: true
             ),
             on: destination,
@@ -134,15 +131,10 @@ public struct DatabaseDiscovery: Sendable {
             guard fields.count >= 2 else { continue }
             let name = fields[0]
             let image = fields[1].lowercased()
-            let uuid = fields.count > 2 && !fields[2].isEmpty ? fields[2] : nil
 
             guard let engine = engineForImage(image) else { continue }
             targets.append(
-                DatabaseTarget(
-                    engine: engine,
-                    location: .container(name: name, image: fields[1]),
-                    coolifyResourceUUID: uuid
-                )
+                DatabaseTarget(engine: engine, location: .container(name: name, image: fields[1]))
             )
         }
         return targets

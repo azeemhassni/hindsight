@@ -46,7 +46,6 @@ struct SettingsForm: View {
                     retention: $flow.retention,
                     bandwidthLimitKiB: $flow.bandwidthLimitKiB,
                     repositoryPath: $flow.repositoryPath,
-                    coolifyToken: $flow.coolifyToken,
                     checkRotationWeeks: $flow.checkRotationDivisor,
                     excludePatterns: $flow.excludePatterns
                 )

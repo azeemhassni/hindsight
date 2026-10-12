@@ -160,9 +160,6 @@ public struct OnboardingView: View {
                 if let platform = state.detectedPlatform {
                     Label(platform.prettyName, systemImage: "cpu")
                     Label(platform.architecture.rawValue, systemImage: "memorychip")
-                    if let coolify = state.detectedCoolifyVersion {
-                        Label("Coolify \(coolify)", systemImage: "shippingbox")
-                    }
                 } else {
                     ProgressView("Looking around…").task { await onDetect() }
                 }

@@ -13,15 +13,13 @@ struct SecretStoreTests {
         #expect(SecretKey.repositoryPassword(id).account == "repo-password/web-01")
         #expect(SecretKey.restServerCredential(id).account == "rest-credential/web-01")
         #expect(SecretKey.sshPrivateKey(id).account == "ssh-key/web-01")
-        #expect(SecretKey.coolifyToken(id).account == "coolify-token/web-01")
 
         let accounts = Set([
             SecretKey.repositoryPassword(id),
             .restServerCredential(id),
             .sshPrivateKey(id),
-            .coolifyToken(id),
         ].map(\.account))
-        #expect(accounts.count == 4)
+        #expect(accounts.count == 3)
         #expect(SecretKey.repositoryPassword(id).label.contains("web-01"))
     }
 

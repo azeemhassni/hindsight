@@ -1,14 +1,13 @@
 # Hindsight — Architecture
 
 Hindsight backs up Linux VPSes to a Mac over SSH and restores them. It is a
-Time Machine for servers: a background agent runs scheduled jobs, a SwiftUI app
-browses history and drives restores, and Coolify-managed servers get
-per-resource backup and restore.
+Time Machine for servers: a background agent runs scheduled jobs and a SwiftUI
+app browses history and drives restores.
 
 Status: implemented and corrected against reality. Where measurement
 contradicted the original design, this document was updated and the reason
 recorded in `docs/DECISIONS.md`. `docs/CHANGELOG.md` says what each milestone
-delivered; §20 lists what is built but not yet connected to the interface.
+delivered; §19 lists what is built but not yet connected to the interface.
 
 ---
 
@@ -20,7 +19,6 @@ delivered; §20 lists what is built but not yet connected to the interface.
 - A compromised VPS cannot destroy backup history.
 - Logically consistent database backups, not copies of live data files.
 - Restores that can be previewed, undone, and honestly described.
-- Coolify v4 as a first-class concept: project → environment → resource.
 - Small, auditable VPS footprint: one cached binary plus a lock file per run.
 
 **Non-goals**
@@ -76,14 +74,13 @@ they test headlessly under `swift test`.
 | `HindsightRestic` | restic driver: argument construction, `--json` event decoding, repository init, snapshot listing, `diff`, `forget`/`prune`/`check`, `restore`, `--stdin` ingestion. Plus the rest-server supervisor. |
 | `HindsightCatalog` | GRDB schema, migrations, query repositories, job and event history, change notifications. |
 | `HindsightSchedule` | Cadence evaluation, cron parsing, wake/catch-up policy, AC-power policy, per-repository mutual exclusion, GFS retention math. |
-| `HindsightCoolify` | API client, label parsing, read-only DB queries, resource-tree construction, per-resource capture planning. |
 | `HindsightRestore` | Restore planning: scope resolution, diff computation, mode-availability analysis, safety-snapshot orchestration, exclusion enforcement. |
 | `HindsightProtocol` | XPC protocol and DTOs shared by app and agent. |
 | `HindsightAgent` | Agent executable: scheduler loop, job runner, XPC listener, notifications. |
 | `HindsightTestSupport` | Docker/OrbStack harness, fixtures, seeded datasets, and the destructive-operation guard used by integration tests. |
 
 `App/` holds the Xcode project for `Hindsight.app`, which depends on the local
-package and embeds the agent. See §17 for how the project file is managed.
+package and embeds the agent. See §16 for how the project file is managed.
 
 Concurrency: strict mode, `Sendable` domain types, actors for stateful
 components (`RepositoryLockManager`, `JobRunner`, `ControlMasterPool`). Long
@@ -148,7 +145,6 @@ Items:
 - `rest-credential/<server-id>` — rest-server basic-auth username/password.
 - `ssh-key/<server-id>` — private key material when Hindsight generates the key;
   existing user keys are referenced by path and never copied.
-- `coolify-token/<server-id>` — API token, read scope only.
 
 Nothing secret is ever passed on a command line. restic receives the repository
 URL and password through the environment of the remote process
@@ -217,7 +213,7 @@ auto-accepted, never `accept-new`.
 **Development guard.** When built for development or tests, `HindsightSSH`
 refuses to connect to anything that is not loopback or a Docker/OrbStack address
 unless an explicit allowlist environment variable is set. This exists so that a
-mistake during development cannot touch a real host. See §16.
+mistake during development cannot touch a real host. See §15.
 
 ---
 
@@ -384,8 +380,8 @@ tagged snapshots via `--stdin`:
 | Redis | `BGSAVE`, poll `rdb_bgsave_in_progress` until clear and `rdb_last_save` advances, then stream the RDB | AOF-only instances are detected and the AOF is streamed instead |
 
 Each dump becomes its own snapshot: `--stdin-filename <db>.dump`,
-`--tag db:<engine> --tag dbname:<name>`, and `--tag coolify:<uuid>` when it
-belongs to a Coolify resource. Separate snapshots mean a database can be restored
+and `--tag db:<engine> --tag dbname:<name>`. Separate snapshots mean a database
+can be restored
 without touching the filesystem, and its history is queryable alone. restic
 dedups dump streams well in practice but not as well as files, so the UI shows
 dump growth separately — a surprise should be visible.
@@ -414,19 +410,16 @@ the repositories.
 
 ```
 servers(id, name, host, port, user, auth_mode, sudo_mode, os, arch,
-        coolify_version, created_at, last_seen_at)
+        created_at, last_seen_at, paused_at)
 repositories(id, server_id, path, created_at, password_keychain_ref)
-schedules(id, server_id, resource_id?, kind, spec, ac_only, next_fire_at)
-retention_policies(id, server_id, resource_id?, scope, keep_within, daily,
+schedules(id, server_id, kind, spec, ac_only, next_fire_at)
+retention_policies(id, server_id, scope, keep_within, daily,
                    weekly, monthly, yearly)
 path_rules(id, server_id, kind{include,exclude}, glob, source{default,user})
 snapshots(id, repo_id, restic_id, time, hostname, tree, parent, paths_json,
           size_bytes, data_added_bytes, kind{filesystem,dump,metadata})
 snapshot_tags(snapshot_id, tag)
-coolify_projects/environments/resources(uuid, name, kind, parent, ...)
-resource_captures(resource_uuid, snapshot_id, captured_at, volumes_json,
-                  config_paths_json, env_source)
-jobs(id, kind, server_id, resource_id?, state, started_at, finished_at,
+jobs(id, kind, server_id, state, started_at, finished_at,
      bytes_processed, bytes_added, files_new, files_changed, error_code,
      error_text)
 job_events(job_id, seq, at, level, message)   -- bounded, rotated
@@ -503,88 +496,11 @@ Dump snapshots are forgotten under their own tag-scoped policy, so a
 
 ---
 
-## 13. Coolify support
-
-Coolify v4 is detected by `/data/coolify`, by the `coolify`, `coolify-db`,
-`coolify-proxy` containers, and confirmed by `GET /api/v1/version`.
-
-### 13.1 Verified from source, release `v4.3.23`
-
-Container labels, read from `bootstrap/helpers/docker.php` on `main` — discovery
-can rely on these even with no API token:
-
-```
-coolify.managed            coolify.type              coolify.name
-coolify.projectName        coolify.environmentName   coolify.resourceName
-coolify.applicationId      coolify.applicationUuid
-coolify.databaseUuid       coolify.database.subType
-coolify.serviceName        coolify.service.subId     coolify.service.subType
-coolify.service.subUuid    coolify.service.subName
-coolify.pullRequestId      coolify.version
-```
-
-API: prefix `/api/v1`, Sanctum bearer token with `read` / `write` abilities.
-Hindsight requires **read** only, and the onboarding text says so. Endpoints
-that matter here, all `GET`: `/version`, `/projects`, `/projects/{uuid}`,
-`/applications`, `/applications/{uuid}`, `/applications/{uuid}/envs`,
-`/applications/{uuid}/storages`, `/databases`, `/databases/{uuid}`,
-`/databases/{uuid}/envs`, `/databases/{uuid}/storages`, `/services`,
-`/services/{uuid}`, `/services/{uuid}/databases`,
-`/services/{uuid}/applications`, `/services/{uuid}/storages`, `/servers`,
-`/servers/{uuid}/resources`, `/servers/{uuid}/proxy`.
-
-`/{applications,databases,services}/{uuid}/storages` is the authoritative source
-for a resource's persistent volumes and bind mounts, which is exactly what
-per-resource capture needs.
-
-Known from Coolify's own documentation: `APP_KEY` in Coolify's environment file
-at `/data/coolify/source/` encrypts the credentials and private keys stored in
-Coolify's database. Without it a restored `coolify-db` is useless. Hindsight
-treats that file as the single most important object it captures and verifies its
-presence in every Coolify snapshot.
-
-### 13.2 To verify in the test VM before implementation (Milestone 10)
-
-Marked explicitly unverified, because the brief's recollection and mine are not
-evidence:
-
-- exact layout of `/data/coolify/{applications,services,databases}/<uuid>` and
-  which files there are authoritative versus regenerated;
-- `/data/coolify/{ssh,proxy,backups,source,database}` contents, and which are
-  state versus derived;
-- `coolify-db` container name, Postgres role and database names, and whether
-  `pg_dump` must run as a specific user;
-- volume naming conventions, and whether volumes are always Docker named volumes
-  or sometimes host binds;
-- Coolify's own DB schema for the read-only fallback path, which is a private
-  interface and must be treated as version-fragile;
-- proxy flavor and label scheme (Traefik versus Caddy) and what Coolify does
-  natively for rolling updates — this gates restore mode 1 (§14).
-
-### 13.3 Per-resource capture
-
-The tree is Project → Environment → Resource (application | service | database),
-built from the API when a token exists, from labels otherwise, and from
-read-only DB queries as a last resort. Each source is tried in that order and the
-UI shows which one produced the tree, because a label-only tree is less complete.
-
-Per resource: Docker volumes and bind mounts, config and compose files under
-`/data/coolify/.../<uuid>`, env vars and settings, and a logical dump for
-database resources. Every snapshot is tagged `coolify:<resource-uuid>` plus
-`coolify-project:<name>` and `coolify-env:<name>`, so a resource's history is a
-tag query and survives the resource being renamed or moved.
-
-Coolify itself is a resource too: its environment file under
-`/data/coolify/source/`, the `coolify-db` dump, `/data/coolify/ssh`, and
-`/data/coolify/proxy`, with a dedicated "restore Coolify instance" flow.
-
----
-
-## 14. Restore
+## 13. Restore
 
 ### 14.1 Wizard
 
-Snapshot → scope (full server | selected paths | Coolify resource) → target
+Snapshot → scope (full server | selected paths) → target
 (in place | alternate path | another server) → mode → **dry-run review** →
 confirm by typing the hostname.
 
@@ -614,30 +530,15 @@ possible **and why the others are not** — e.g. "Minimal downtime unavailable:
 this resource uses a bind mount under `/data` on the same filesystem as the live
 path, so an atomic rename is not possible."
 
-1. **Zero-downtime (blue/green) — researched, and not offered.** Coolify's own
-   `rolling_update()` is real blue/green, but it replaces the *container*, not
-   the data: the new container is generated from the same compose file and
-   mounts the same named volume as the old one, because the volume list comes
-   from Coolify's database. Restoring data without interruption would mean
-   repointing the resource at a new volume, and only Coolify's own database can
-   do that — which Hindsight will not write to.
-
-   So the mode is described in the UI and marked unavailable, with that reason,
-   rather than hidden or faked. Overwriting a shared volume beneath a running
-   application while calling it zero downtime would be exactly the dishonest
-   case the brief rules out. Full reasoning and sources in `docs/COOLIFY.md`
-   §9. If Coolify later exposes volume rewiring through its API, this becomes
-   possible and should be revisited.
-2. **Minimal downtime.** Stage restored data beside the live data on the same
+1. **Minimal downtime.** Stage restored data beside the live data on the same
    filesystem, then stop, swap with `rename(2)`, start. Downtime is the stop and
    start, shown as an estimate derived from the container's observed start time.
    Requires same-filesystem staging space.
-3. **Standard.** Stop, restore, start. Always available.
+2. **Standard.** Stop, restore, start. Always available.
 
 Alongside the modes, the **clone** target restores into a new volume under a new
 name. It touches nothing live, which makes it the honest answer to "I want to
-look at this data without risking the running copy" — the need zero-downtime
-restore was reached for.
+look at this data without risking the running copy".
 
 ### 14.4 Hard exclusions
 
@@ -652,26 +553,24 @@ prevents its own repair.
 
 ---
 
-## 15. UI
+## 14. UI
 
 SwiftUI, `NavigationSplitView`, light and dark, SF Symbols, full keyboard
 access, accessibility labels on every control and on the timeline. Calm by
 default: color is reserved for states that need attention.
 
 - **Sidebar** — servers with health dots derived from last-backup age and last
-  check result; Coolify servers disclose into their resource tree.
+  check result.
 - **Server view** — a scrubbable Time Machine-style snapshot timeline, a
   size-and-dedup-savings chart, schedule status, next run, recent activity.
 - **Snapshot browser** — lazily loaded file tree, search, Quick Look for text
   and images, diff between any two snapshots, restore of a single file or folder.
-- **Coolify tab** — Project → Environment → Resource tree with per-resource last
-  backup, history, and per-resource backup and restore actions.
 - **Settings** — connection, schedule, retention, include/exclude rules,
-  bandwidth limit, repository location, Coolify token, integrity-check rotation.
+  bandwidth limit, repository location, integrity-check rotation.
 - **Activity log** — live progress with bytes scanned, bytes new, ETA; errors
   are copyable in full, with the exact failing command, secrets redacted.
-- **Onboarding** — add server, verify host key fingerprint, detect sudo, Coolify
-  and OS, choose the repository location (external volumes first, free space
+- **Onboarding** — add server, verify host key fingerprint, detect sudo and
+  OS, choose the repository location (external volumes first, free space
   shown), run the first backup, export the recovery kit. The kit step cannot be
   skipped.
 
@@ -680,12 +579,11 @@ nothing because the agent owns the work.
 
 ---
 
-## 16. Testing
+## 15. Testing
 
 **Unit** (`swift test`, no containers): cron and cadence math, catch-up and
 power policies, GFS retention math, catalog migrations and queries, restic
-`--json` decoding against recorded fixtures, Coolify label and API parsing
-against recorded fixtures, restore planning — scope resolution, mode
+`--json` decoding against recorded fixtures, restore planning — scope resolution, mode
 availability, exclusion enforcement, diff interpretation.
 
 **Integration** (`make test-integration`, starts and stops its environment):
@@ -693,9 +591,6 @@ availability, exclusion enforcement, diff interpretation.
 - `docker compose` with an Ubuntu container running sshd, a Postgres container,
   and a MySQL container, each seeded with a known dataset and carrying
   `/etc/hindsight-test-target`.
-- An OrbStack VM running Coolify with a couple of sample resources, for the
-  Coolify and blue/green tests. OrbStack is already present on this machine;
-  Lima is the documented fallback.
 
 Scenarios: full cycle (backup → mutate → incremental, asserting the second
 backup adds only a small fraction of new data → restore in each mode →
@@ -726,7 +621,7 @@ runs the rest, and tears it down even on failure.
 
 ---
 
-## 17. Build and distribution
+## 16. Build and distribution
 
 - `Package.swift` at the root for all modules; `swift test` is the headless path.
 - `App/project.yml` plus XcodeGen generates the app project, because a
@@ -741,7 +636,7 @@ runs the rest, and tears it down even on failure.
 
 ---
 
-## 18. Where this differs from the brief
+## 17. Where this differs from the brief
 
 Everything below is a deliberate deviation or a correction based on evidence,
 not a preference.
@@ -776,19 +671,20 @@ not a preference.
    Direct notarized distribution is the consequence.
 9. **The menu bar extra belongs to the app, not the agent.** A LaunchAgent is
    not a UI agent, so quitting the app removes its menu bar item while backups
-   continue (decided in §19). The item means "the UI is running" and never
+   continue (decided in §18). The item means "the UI is running" and never
    implies anything about whether backups are scheduled.
-10. **Coolify facts are now sourced, not remembered.** Labels and API surface
-    were read from Coolify `v4.3.23` and are listed in §13.1. Everything about
-    `/data/coolify` internals, container and role names, and the DB schema
-    remains explicitly unverified until Milestone 10, and §13.2 lists exactly
-    what will be checked.
+10. **Coolify support was removed.** It was built, and then taken out: a
+    resource tree that could not be verified against a real install, and a
+    per-resource restore never exercised end to end, were worse than their
+    absence. What is kept is database dumping, which covers a Coolify-managed
+    database without knowing anything about Coolify. See R54 in
+    `docs/DECISIONS.md`.
 11. **Pinned versions are current as of today**: restic 0.19.1 (2026-07-05),
-    rest-server 0.14.0 (2025-05-31), checked against Coolify v4.3.23.
+    rest-server 0.14.0 (2025-05-31).
 
 ---
 
-## 19. Decisions
+## 18. Decisions
 
 Resolved, 2026-10-04.
 
@@ -812,7 +708,7 @@ Resolved, 2026-10-04.
 
 ---
 
-## 20. What is built, and what is wired
+## 19. What is built, and what is wired
 
 The engine is complete and verified against real servers; the interface is
 wired to it. What remains unproven is listed honestly at the end.
@@ -829,10 +725,6 @@ wired to it. What remains unproven is listed honestly at the end.
   preview, byte-for-byte restore, undo, staged swap, hard exclusions — reachable
   from the window, with the hostname confirmation re-checked by the agent
   rather than trusted from the app.
-- Coolify: discovery from labels and from the API, agreeing on the same
-  install; the instance plan checked against a live install; per-resource
-  capture of volumes, generated compose files and database dumps, tagged so a
-  resource's history stands alone.
 - Second copy, scheduling, the catalog, the Keychain, the agent's XPC surface,
   onboarding, settings persistence, notifications, the snapshot browser, and
   the recovery kit.
@@ -846,7 +738,6 @@ away from the agent:
 |---|---|---|
 | Overview | health, schedule, the snapshot timeline, repository size and savings | backup, restore, maintenance, recovery kit |
 | Snapshots | every snapshot, filtered by kind, and the chosen one's files | restore the whole snapshot, restore one path, Quick Look one file |
-| Coolify | projects, environments and resources, with where the list came from | back up one resource, restore one resource |
 | Logs | every run with its state, duration and bytes, and the chosen run's log in full | reload, copy a log |
 | Settings | the settings in force, read back from the agent | one sparse save |
 
@@ -862,12 +753,10 @@ keeps a banner in its own view until a kit is saved.
 | Piece | How |
 |---|---|
 | Backup now | `backUpNow` over XPC, queued per repository |
-| One Coolify resource | `backUpResource`; the resource list is read off the server again first, because a redeploy moves volumes |
 | Restore | `previewRestore` then `runRestore`; the preview takes the safety snapshot, and the agent re-checks the typed hostname |
 | Maintenance | `runMaintenance` / `checkIntegrity`, plus the agent's own half-hourly sweep |
 | Settings | `serverSettings` to read, one sparse `updateServerSettings` to write; untouched fields stay unset so saving one cannot reset another |
 | Onboarding | `scanHostKey`, `trustHostKey`, `probeServer`, `addServer` — separate because each fails on its own |
-| Coolify discovery | `discoverCoolify`; cached in the catalog so an unreachable server shows what was last seen, marked as such |
 | Logs | `jobHistory` and `jobLog`, read from the catalog by the agent |
 | Snapshot browser | `listSnapshotDirectory` and `extractFile`; the agent reads the repository because it holds the password |
 | Recovery kit | `recoveryKit`: assembled by the agent, saved by the app through a file dialog, refused if any password is missing |
@@ -912,17 +801,9 @@ Six faults only a real install could show, each now covered by a test:
 
 **Still unproven**
 
-- Restoring a Coolify instance end to end into a fresh virtual machine.
 - Notarisation. The build is signed and hardened, and Gatekeeper reports
   `Unnotarized Developer ID` — it runs locally, and a download would be
   refused until it is submitted to Apple.
-- Per-resource backup and restore against the live Coolify VM: OrbStack's ssh
-  gateway refuses remote port forwarding outright, and every backup needs a
-  reverse tunnel. The test for it skips with that reason rather than failing;
-  it needs the VM reachable on its own address. See `docs/COOLIFY.md` §10.
-- Cross-server migration of a resource.
-- Application and service resource labels, observed rather than inferred; see
-  `docs/COOLIFY.md` §10 for why and what it needs.
 - The agent as an actual `SMAppService` LaunchAgent, which needs a Developer ID
   to sign with. A development LaunchAgent is described in the README and is how
   the interface above was driven end to end.

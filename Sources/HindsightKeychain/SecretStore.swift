@@ -9,14 +9,12 @@ public enum SecretKey: Hashable, Sendable {
     case repositoryPassword(ServerID)
     case restServerCredential(ServerID)
     case sshPrivateKey(ServerID)
-    case coolifyToken(ServerID)
 
     public var account: String {
         switch self {
         case let .repositoryPassword(id): "repo-password/\(id.value)"
         case let .restServerCredential(id): "rest-credential/\(id.value)"
         case let .sshPrivateKey(id): "ssh-key/\(id.value)"
-        case let .coolifyToken(id): "coolify-token/\(id.value)"
         }
     }
 
@@ -25,7 +23,6 @@ public enum SecretKey: Hashable, Sendable {
         case let .repositoryPassword(id): "Hindsight repository password for \(id.value)"
         case let .restServerCredential(id): "Hindsight transfer credential for \(id.value)"
         case let .sshPrivateKey(id): "Hindsight SSH key for \(id.value)"
-        case let .coolifyToken(id): "Hindsight Coolify token for \(id.value)"
         }
     }
 }

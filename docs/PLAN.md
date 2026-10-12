@@ -10,6 +10,11 @@ original brief.
 Legend: **AC** = acceptance criteria, all of which must pass before the
 milestone is called done.
 
+**Withdrawn on 2026-10-12: M10 and M12.** Coolify support is removed — see R54
+in `docs/DECISIONS.md`. Hindsight backs up and restores a Linux box, and
+reaches a database only to dump it. Both milestones stay below for the record,
+struck through; nothing else depended on them.
+
 ---
 
 ## M0 — Foundations
@@ -76,7 +81,7 @@ The supply chain, before anything depends on it.
   filesystem types and mounts, container runtime, listening DB ports.
 - Reverse-forward allocation via `-R 0:` with port parsing.
 - Binary upload to `~/.cache/hindsight/`, with pre-run SHA-256 verification.
-- The development loopback guard (Architecture §5, §16).
+- The development loopback guard (Architecture §5, §15).
 
 **AC**
 
@@ -106,7 +111,7 @@ The supply chain, before anything depends on it.
 - Migration tests: fresh install reaches head; every migration is applied
   exactly once; a downgrade attempt is refused rather than corrupting data.
 - Round-trip tests for each entity, including tag queries
-  (`coolify:<uuid>` lookups return the right snapshots).
+  (tag lookups return the right snapshots).
 - A concurrency test with a writer and several readers shows no reader blocking
   and no `SQLITE_BUSY` under load.
 - Event rotation keeps a bounded row count under a synthetic flood.
@@ -201,7 +206,7 @@ The core of the product.
   timeline, size/dedup chart, schedule status, activity log.
 - Settings for connection, schedule, retention, rules, bandwidth, repo location,
   integrity rotation.
-- Onboarding: add server → verify host key → detect sudo/Coolify/OS → choose
+- Onboarding: add server → verify host key → detect sudo/OS → choose
   repository location (external volumes first, free space per volume) → first
   backup → recovery kit export.
 - Recovery kit generator: human-readable plus JSON, with stock-restic commands.
@@ -257,7 +262,7 @@ The core of the product.
 
 ---
 
-## M10 — Coolify: verify, then discover
+## ~~M10 — Coolify: verify, then discover~~ (withdrawn)
 
 **This milestone starts with verification, not code.** A Coolify install runs in
 an OrbStack VM and every item in Architecture §13.2 is checked against it. The
@@ -326,7 +331,7 @@ restore can use it rather than manipulating the proxy directly.
 
 ---
 
-## M12 — Zero-downtime restore and per-resource Coolify restore
+## ~~M12 — Zero-downtime restore and per-resource Coolify restore~~ (withdrawn)
 
 Gated on the M10 research report.
 

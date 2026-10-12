@@ -281,12 +281,6 @@ public actor AgentCore {
                 return .failed(message: "\(error)")
             }
 
-        case let .discoverCoolify(serverID):
-            return await discoverCoolify(serverID: serverID)
-
-        case let .backUpResource(serverID, resourceUUID):
-            return await enqueueResourceBackup(serverID: serverID, resourceUUID: resourceUUID)
-
         case let .jobHistory(serverID, limit):
             return jobHistory(serverID: serverID, limit: limit)
 
@@ -446,7 +440,6 @@ public actor AgentCore {
                 entries.append(
                     ScheduledEntry(
                         serverID: server.id,
-                        resourceUUID: record.resourceUUID,
                         schedule: schedule,
                         repositoryPath: repository.path,
                         lastFiredAt: lastFired
@@ -470,7 +463,6 @@ public actor AgentCore {
             QueuedJob(
                 serverID: entry.serverID,
                 kind: .backup,
-                resourceUUID: entry.resourceUUID,
                 repositoryPath: entry.repositoryPath
             )
         )
@@ -555,29 +547,6 @@ public actor AgentCore {
             }
             record.finishedAt = Date()
             try catalog.save(record)
-            return
-
-        case .backup where job.resourceUUID != nil:
-            do {
-                try await runResourceBackup(
-                    job,
-                    resourceUUID: job.resourceUUID!,
-                    server: server,
-                    repository: repository
-                )
-                record.state = .succeeded
-            } catch {
-                record.state = .failed
-                record.errorText = "\(error)"
-                try? catalog.append("\(error)", level: .error, to: job.id)
-                record.finishedAt = Date()
-                try? catalog.save(record)
-                notifier.backupFailed(server: server.name, reason: "\(error)")
-                throw error
-            }
-            record.finishedAt = Date()
-            try catalog.save(record)
-            try? catalog.trimEvents(for: job.id, keeping: 2000)
             return
 
         case .backup, .databaseDump, .metadata, .copy:
@@ -822,8 +791,6 @@ public enum AgentError: Error, CustomStringConvertible {
     case unknownServer(String)
     case noRepository(String)
     case noRestoreCommand(String)
-    case unknownCoolifyResource(String)
-    case resourceBackupFailed(String, String)
 
     public var description: String {
         switch self {
@@ -831,10 +798,6 @@ public enum AgentError: Error, CustomStringConvertible {
         case let .noRepository(id): "Server \(id) has no repository yet."
         case let .noRestoreCommand(id):
             "Job \(id) has no restore attached to it, so nothing was changed."
-        case let .unknownCoolifyResource(uuid):
-            "The server no longer has a Coolify resource \(uuid)."
-        case let .resourceBackupFailed(uuid, reason):
-            "Could not back up \(uuid): \(reason)"
         }
     }
 }

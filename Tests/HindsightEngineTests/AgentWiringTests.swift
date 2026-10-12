@@ -54,7 +54,7 @@ struct AgentWiringTests {
     func settingsUpdateIsSparse() throws {
         var update = ServerSettingsUpdate(serverID: "web-01")
         update.keepDaily = 14
-        update.coolifyToken = "secret-token"
+        update.bandwidthLimitKiB = 2048
 
         let decoded = try AgentCoding.decode(
             ServerSettingsUpdate.self,
@@ -65,7 +65,7 @@ struct AgentWiringTests {
         // setting the person did not open.
         #expect(decoded.keepWeekly == nil)
         #expect(decoded.cadence == nil)
-        #expect(decoded.coolifyToken == "secret-token")
+        #expect(decoded.bandwidthLimitKiB == 2048)
     }
 
     @Test("a cadence survives the round trip through the settings update")

@@ -104,7 +104,6 @@ struct AgentFlowIntegrationTests {
             return
         }
         #expect(current.repositoryPath.contains(serverID))
-        #expect(!current.coolifyTokenIsSet)
         #expect(current.keepDaily > 0)
 
         // 6. The logs tab, on a server that has not run anything yet: empty is
@@ -115,70 +114,6 @@ struct AgentFlowIntegrationTests {
             return
         }
         #expect(jobs.isEmpty)
-
-        // 7. The Coolify tab on a server with no Docker: an explanation, not an
-        // error, and the catalog left empty rather than guessing.
-        let coolify = await core.handle(.discoverCoolify(serverID: serverID))
-        guard case let .coolifyTree(tree) = coolify else {
-            Issue.record("expected a tree, got \(coolify)")
-            return
-        }
-        #expect(tree.resources.isEmpty)
-        #expect(tree.mayBeIncomplete)
-        #expect(!tree.sourceExplanation.isEmpty)
-    }
-
-    @Test("refuses a per-resource backup for a resource the server does not have")
-    func refusesUnknownResource() async throws {
-        let (core, configuration) = try makeCore()
-        let host = try #require(TestEnvironment.host)
-        let port = try #require(TestEnvironment.port)
-        let scanned = await core.handle(.scanHostKey(host: host, port: port))
-        guard case let .hostKey(key) = scanned else {
-            Issue.record("expected a host key, got \(scanned)")
-            return
-        }
-        _ = await core.handle(
-            .trustHostKey(host: host, port: port, keyType: key.keyType, base64Key: key.base64Key)
-        )
-        let repositoryPath = configuration.repositoryRoot.appendingPathComponent("flow2").path
-        let added = await core.handle(.addServer(try draft(repositoryPath: repositoryPath)))
-        guard case let .serverAdded(serverID) = added else {
-            Issue.record("expected a server, got \(added)")
-            return
-        }
-
-        // Queued, then failed on the server's own evidence rather than on a
-        // stale catalog row: the resource list is re-read before the backup.
-        let accepted = await core.handle(
-            .backUpResource(serverID: serverID, resourceUUID: "does-not-exist")
-        )
-        guard case let .accepted(jobID) = accepted else {
-            Issue.record("expected the job to be accepted, got \(accepted)")
-            return
-        }
-
-        var state: String?
-        for _ in 0..<60 {
-            let history = await core.handle(.jobHistory(serverID: serverID, limit: 10))
-            if case let .jobs(jobs) = history,
-               let job = jobs.first(where: { $0.id == jobID }),
-               job.isFinished {
-                state = job.state
-                break
-            }
-            try await Task.sleep(for: .milliseconds(500))
-        }
-        #expect(state == "failed")
-
-        let log = await core.handle(.jobLog(jobID: jobID))
-        guard case let .jobLog(lines) = log else {
-            Issue.record("expected a log, got \(log)")
-            return
-        }
-        // The log has to say why, because that is the only place a person can
-        // find out.
-        #expect(lines.contains { $0.message.contains("does-not-exist") })
     }
 }
 

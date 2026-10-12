@@ -17,12 +17,11 @@ struct RemoteFactsTests {
     has_ionice=1
     has_bash=1
     has_sudo=0
-    coolify_dir=1
     test_marker=1
     docker_version=27.3.1
-    container=coolify
-    container=coolify-db
-    container=coolify-proxy
+    container=app
+    container=app-db
+    container=proxy
     mount=/dev/vda1\t/\text4
     mount=/dev/mapper/vg0-data\t/data\text4
     mount=tank/srv\t/srv\tzfs
@@ -46,10 +45,8 @@ struct RemoteFactsTests {
         #expect(!facts.hasPasswordlessSudo)
         #expect(facts.dockerServerVersion == "27.3.1")
         #expect(facts.hasDocker)
-        #expect(facts.hasCoolifyDirectory)
-        #expect(facts.looksLikeCoolify)
         #expect(facts.hasTestMarker)
-        #expect(facts.coolifyContainers == ["coolify", "coolify-db", "coolify-proxy"])
+        #expect(facts.containerNames == ["app", "app-db", "proxy"])
         #expect(facts.mounts.count == 3)
         #expect(facts.listeningPorts == [22, 5432])
     }

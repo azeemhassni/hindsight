@@ -8,7 +8,6 @@ public struct ServerSettingsView: View {
     @Binding var retention: RetentionPolicy
     @Binding var bandwidthLimitKiB: Int?
     @Binding var repositoryPath: String
-    @Binding var coolifyToken: String
     @Binding var checkRotationWeeks: Int
     @Binding var excludePatterns: [String]
 
@@ -21,7 +20,6 @@ public struct ServerSettingsView: View {
         retention: Binding<RetentionPolicy>,
         bandwidthLimitKiB: Binding<Int?>,
         repositoryPath: Binding<String>,
-        coolifyToken: Binding<String>,
         checkRotationWeeks: Binding<Int>,
         excludePatterns: Binding<[String]>
     ) {
@@ -30,7 +28,6 @@ public struct ServerSettingsView: View {
         _retention = retention
         _bandwidthLimitKiB = bandwidthLimitKiB
         _repositoryPath = repositoryPath
-        _coolifyToken = coolifyToken
         _checkRotationWeeks = checkRotationWeeks
         _excludePatterns = excludePatterns
     }
@@ -120,17 +117,6 @@ public struct ServerSettingsView: View {
                 Text("""
                 A structural check runs after every prune. Reading all the data \
                 is slower, so it is spread across this window.
-                """)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-
-            Section("Coolify") {
-                SecureField("API token (read only)", text: $coolifyToken)
-                Text("""
-                Optional. Without it Hindsight reads container labels instead, \
-                which shows running resources only. A token belongs to one \
-                team and sees only that team's servers.
                 """)
                 .font(.caption)
                 .foregroundStyle(.secondary)

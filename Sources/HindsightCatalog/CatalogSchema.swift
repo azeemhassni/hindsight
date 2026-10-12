@@ -244,6 +244,35 @@ public enum CatalogSchema {
             }
         }
 
+        // Coolify support is gone: Hindsight backs up and restores a Linux
+        // box, and reaches a database only to dump it. Dropped rather than
+        // left in place because a column nothing writes is a column the next
+        // person has to work out the meaning of. Snapshots keep their
+        // `coolify:` tags — those live in the repositories, which no migration
+        // touches, and they are still how an old resource's history is found.
+        migrator.registerMigration("v5-drop-coolify", foreignKeyChecks: .immediate) { database in
+            try database.drop(table: "resourceCapture")
+            try database.drop(table: "coolifyResource")
+            try database.drop(index: "schedule_on_server_resource")
+            try database.alter(table: "schedule") { table in
+                table.drop(column: "resourceUUID")
+            }
+            try database.alter(table: "job") { table in
+                table.drop(column: "resourceUUID")
+            }
+            try database.alter(table: "server") { table in
+                table.drop(column: "coolifyVersion")
+            }
+            // One schedule per server now that a server is the only thing with
+            // a schedule.
+            try database.create(
+                index: "schedule_on_server",
+                on: "schedule",
+                columns: ["serverId"],
+                unique: true
+            )
+        }
+
         return migrator
     }
 }

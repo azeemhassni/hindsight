@@ -6,7 +6,6 @@ import SwiftUI
 public enum ServerTab: String, CaseIterable, Hashable, Sendable {
     case overview
     case snapshots
-    case coolify
     case logs
     case settings
 
@@ -14,7 +13,6 @@ public enum ServerTab: String, CaseIterable, Hashable, Sendable {
         switch self {
         case .overview: "Overview"
         case .snapshots: "Snapshots"
-        case .coolify: "Coolify"
         case .logs: "Logs"
         case .settings: "Settings"
         }
@@ -112,7 +110,7 @@ public struct RootView: View {
         .toolbar { toolbarContent }
         .task { await model.refresh() }
         .onChange(of: model.selectedServer?.id) { _, _ in
-            // Each server has its own history, settings and resources; keeping
+            // Each server has its own history and settings; keeping
             // the previous server's would be showing one server's data under
             // another's name.
             selectedJobID = nil
@@ -239,19 +237,8 @@ public struct RootView: View {
         }
     }
 
-    /// What the restore sheet offers, and why the rest is not offered.
-    ///
-    /// Zero downtime is listed and refused on purpose: see `docs/COOLIFY.md`
-    /// §9 for why it cannot be honest for a data restore.
+    /// What the restore sheet offers, and what each one costs.
     static let modeExplanations: [(mode: String, title: String, available: Bool, explanation: String)] = [
-        (
-            "zeroDowntime", "Zero downtime", false,
-            """
-            Not available for restoring data. Coolify's rolling update replaces \
-            a container, not its data: the new container mounts the same volume \
-            as the old one.
-            """
-        ),
         (
             "minimalDowntime", "Minimal downtime", true,
             """
@@ -340,23 +327,6 @@ public struct RootView: View {
                 }
             )
 
-        case .coolify:
-            CoolifyTreeView(
-                report: model.coolify[server.id],
-                isLoading: model.discoveringCoolify.contains(server.id),
-                failure: model.coolifyFailures[server.id],
-                onRefresh: { await model.discoverCoolify(serverID: server.id) },
-                onBackUp: { resource in
-                    Task {
-                        await model.backUpResource(
-                            serverID: server.id,
-                            resourceUUID: resource.uuid
-                        )
-                    }
-                },
-                onRestore: { resource in restoreResource(resource, server: server) }
-            )
-
         case .logs:
             VStack(spacing: 0) {
                 Picker("Show", selection: $logSource) {
@@ -411,20 +381,6 @@ public struct RootView: View {
 
     private func flow(for server: ServerStatus) -> RestoreFlow {
         RestoreFlow(model: model, serverID: server.id, serverHostname: server.name)
-    }
-
-    /// Restoring a Coolify resource means restoring the snapshot taken of that
-    /// resource: it holds its configuration directory and its volumes and
-    /// nothing else, so the whole snapshot is the right scope.
-    private func restoreResource(_ resource: CoolifyResourceReport, server: ServerStatus) {
-        let tag = SnapshotTag.coolifyResource(resource.uuid).rawValue
-        let candidates = snapshots(server.id)
-            .filter { $0.tags.contains(tag) }
-            .sorted { $0.time > $1.time }
-
-        let flow = flow(for: server)
-        flow.snapshotID = candidates.first?.id.value
-        restoreFlow = flow
     }
 
     private func startOnboarding() {

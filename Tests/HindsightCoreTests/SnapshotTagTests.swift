@@ -8,9 +8,6 @@ struct SnapshotTagTests {
         .hindsight,
         .safety,
         .profile("full"),
-        .coolifyResource("b8c1f0e2-1111-2222-3333-444455556666"),
-        .coolifyProject("acme"),
-        .coolifyEnvironment("production"),
         .databaseEngine("postgres"),
         .databaseName("app_production"),
         .restore(JobID(unchecked: "job-1")),
@@ -24,23 +21,22 @@ struct SnapshotTagTests {
 
     @Test("uses the documented wire format")
     func wireFormat() {
-        #expect(SnapshotTag.coolifyResource("abc").rawValue == "coolify:abc")
         #expect(SnapshotTag.databaseEngine("mysql").rawValue == "db:mysql")
         #expect(SnapshotTag.databaseName("shop").rawValue == "dbname:shop")
         #expect(SnapshotTag.profile("full").rawValue == "profile:full")
     }
 
-    @Test("rejects malformed tags", arguments: ["", "coolify", "coolify:", "nonsense:value", ":value"])
+    @Test("rejects malformed tags", arguments: ["", "profile", "profile:", "nonsense:value", ":value"])
     func rejectsMalformed(_ raw: String) {
         #expect(SnapshotTag(rawValue: raw) == nil)
     }
 
     @Test("a tag set can be queried with typed tags")
     func queriesTagSet() {
-        let tags: Set<String> = ["hindsight", "coolify:abc"]
-        #expect(tags.contains(.coolifyResource("abc")))
+        let tags: Set<String> = ["hindsight", "db:postgres"]
+        #expect(tags.contains(.databaseEngine("postgres")))
         #expect(tags.contains(.hindsight))
-        #expect(!tags.contains(.coolifyResource("def")))
+        #expect(!tags.contains(.databaseEngine("mysql")))
     }
 
     @Test("snapshots round-trip through Codable")

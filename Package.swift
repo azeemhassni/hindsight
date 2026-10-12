@@ -14,7 +14,6 @@ let package = Package(
         .library(name: "HindsightSchedule", targets: ["HindsightSchedule"]),
         .library(name: "HindsightProtocol", targets: ["HindsightProtocol"]),
         .library(name: "HindsightKeychain", targets: ["HindsightKeychain"]),
-        .library(name: "HindsightCoolify", targets: ["HindsightCoolify"]),
         .library(name: "HindsightRestore", targets: ["HindsightRestore"]),
         .library(name: "HindsightUI", targets: ["HindsightUI"]),
         .executable(name: "hindsight-agent", targets: ["hindsight-agent"]),
@@ -62,7 +61,6 @@ let package = Package(
             dependencies: [
                 "HindsightCore",
                 "HindsightCatalog",
-                "HindsightCoolify",
                 "HindsightProtocol",
                 "HindsightRestore",
                 "HindsightSchedule",
@@ -73,16 +71,10 @@ let package = Package(
             name: "HindsightRestore",
             dependencies: [
                 "HindsightCore",
-                "HindsightCoolify",
                 "HindsightProcess",
                 "HindsightRestic",
                 "HindsightSSH",
             ],
-            swiftSettings: .common
-        ),
-        .target(
-            name: "HindsightCoolify",
-            dependencies: ["HindsightCore", "HindsightProcess", "HindsightSSH"],
             swiftSettings: .common
         ),
         .target(
@@ -130,7 +122,6 @@ let package = Package(
                 "HindsightSSH",
                 "HindsightCatalog",
                 "HindsightSchedule",
-                "HindsightCoolify",
                 "HindsightRestore",
             ],
             swiftSettings: .common
@@ -173,11 +164,6 @@ let package = Package(
         .testTarget(
             name: "HindsightRestoreTests",
             dependencies: ["HindsightRestore", "HindsightTestSupport"],
-            swiftSettings: .common
-        ),
-        .testTarget(
-            name: "HindsightCoolifyTests",
-            dependencies: ["HindsightCoolify", "HindsightTestSupport"],
             swiftSettings: .common
         ),
         .testTarget(
