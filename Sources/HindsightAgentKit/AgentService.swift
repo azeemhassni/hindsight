@@ -316,6 +316,13 @@ public actor AgentCore {
         case let .extractFile(serverID, snapshotID, path):
             return await extractFile(serverID: serverID, snapshotID: snapshotID, path: path)
 
+        case let .replicaSeed(serverID, snapshotID, destinationDirectory):
+            return await buildReplicaSeed(
+                serverID: serverID,
+                snapshotID: snapshotID,
+                destinationDirectory: destinationDirectory
+            )
+
         case let .recoveryKit(serverID):
             return await recoveryKit(serverID: serverID)
 

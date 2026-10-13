@@ -34,6 +34,9 @@ public struct RootView: View {
     /// difference between saving it and cancelling the dialog.
     let exportRecoveryKit: @MainActor @Sendable (String?) async -> Bool
     let chooseRepositoryDirectory: @MainActor @Sendable () -> String?
+    /// Where a replica seed is written. Separate from the repository chooser
+    /// because it is a different question with a different warning.
+    let chooseReplicaDirectory: @MainActor @Sendable () -> String?
     let recoveryKits: any RecoveryKitRegistry
     let sudoersResticPath: String
     /// Opens Login Items, where the background agent is allowed or refused.
@@ -47,6 +50,7 @@ public struct RootView: View {
     @State private var logSource: LogSource = .runs
     @State private var removing: ServerStatus?
     @State private var confirmingBackupDeletion: ServerStatus?
+    @State private var replicaResult: ReplicaResult?
 
     enum LogSource: String, CaseIterable, Hashable {
         case runs
@@ -71,6 +75,7 @@ public struct RootView: View {
         saveCopy: @escaping (String, SnapshotID, String) -> Void = { _, _, _ in },
         exportRecoveryKit: @escaping @MainActor @Sendable (String?) async -> Bool = { _ in false },
         chooseRepositoryDirectory: @escaping @MainActor @Sendable () -> String? = { nil },
+        chooseReplicaDirectory: @escaping @MainActor @Sendable () -> String? = { nil },
         recoveryKits: any RecoveryKitRegistry = InMemoryRecoveryKitRegistry(),
         sudoersResticPath: String = "/usr/local/bin/restic",
         onOpenLoginItems: @escaping @MainActor @Sendable () -> Void = {}
@@ -84,6 +89,7 @@ public struct RootView: View {
         self.saveCopy = saveCopy
         self.exportRecoveryKit = exportRecoveryKit
         self.chooseRepositoryDirectory = chooseRepositoryDirectory
+        self.chooseReplicaDirectory = chooseReplicaDirectory
         self.recoveryKits = recoveryKits
         self.sudoersResticPath = sudoersResticPath
         self.onOpenLoginItems = onOpenLoginItems
@@ -135,6 +141,9 @@ public struct RootView: View {
                 makeTargetFlow: { RestoreTargetFlow(model: model) },
                 onClose: { restoreFlow = nil }
             )
+        }
+        .sheet(item: $replicaResult) { result in
+            ReplicaResultSheet(result: result, onClose: { replicaResult = nil })
         }
         .sheet(item: $onboarding) { controller in
             AddServerSheet(
@@ -221,6 +230,17 @@ public struct RootView: View {
                         server.isPaused
                             ? "Let this server's schedule run again"
                             : "Stop scheduled backups for this server until you resume them"
+                    )
+                    Divider()
+                    Button("Build a replica image…", systemImage: "opticaldiscdrive") {
+                        buildReplica(server)
+                    }
+                    .help(
+                        """
+                        Write a cloud-init seed that rebuilds this machine on a \
+                        fresh cloud image. It carries no data; restore that \
+                        onto it afterwards.
+                        """
                     )
                     Divider()
                     Button("Check integrity now", systemImage: "checkmark.seal") {
@@ -404,6 +424,24 @@ public struct RootView: View {
         model.servers
             .filter { $0.id != serverID }
             .map { RestoreDestination(id: $0.id, name: $0.name, hostname: $0.hostname) }
+    }
+
+    /// Writes the seed somewhere the person chooses, then tells them what it
+    /// does and does not carry.
+    private func buildReplica(_ server: ServerStatus) {
+        guard let directory = chooseReplicaDirectory() else { return }
+        Task {
+            guard let built = await model.replicaSeed(
+                serverID: server.id,
+                snapshotID: browsingSnapshotID,
+                destinationDirectory: directory
+            ) else { return }
+            replicaResult = ReplicaResult(
+                path: built.path,
+                notes: built.notes,
+                warnings: built.warnings
+            )
+        }
     }
 
     private func flow(for server: ServerStatus) -> RestoreFlow {

@@ -479,6 +479,14 @@ extension ResticClient {
     /// Only for text: the output passes through a `String`, so bytes that are
     /// not valid UTF-8 do not survive. `extractFile` is the one to use for
     /// anything else.
+    /// Reads one small text file out of a snapshot.
+    ///
+    /// For the metadata a snapshot carries about its machine — package lists,
+    /// unit files, `os-release` — which are kilobytes and genuinely text.
+    public func readTextFile(snapshot: SnapshotID, path: String) async throws -> String {
+        try await run(["dump", snapshot.value, path], operation: "dump").standardOutput
+    }
+
     public func dumpFile(
         snapshot: SnapshotID,
         path: String,

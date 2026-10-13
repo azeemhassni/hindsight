@@ -66,6 +66,9 @@ public enum AgentRequest: Codable, Sendable, Hashable {
     /// Assembled by the agent, saved by the app: the passwords are the agent's
     /// to read, and where the file goes is a question for a person.
     case recoveryKit(serverID: String?)
+    /// Builds the cloud-init seed that turns a fresh cloud image into a copy
+    /// of this server. Carries no data: the repository holds that.
+    case replicaSeed(serverID: String, snapshotID: String?, destinationDirectory: String)
     /// Asks the agent to exit so launchd starts the new one. Sent after an
     /// update, when the running agent is not the one in the app bundle.
     case restartAgent
@@ -430,6 +433,7 @@ public enum AgentResponse: Codable, Sendable, Hashable {
     case snapshotMatches(nodes: [SnapshotNodeReport], truncated: Bool)
     case extractedFile(path: String)
     case kit(RecoveryKitReport)
+    case replicaSeed(path: String, notes: String, warnings: [String])
     case done
     case failed(message: String)
 }

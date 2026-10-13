@@ -170,7 +170,7 @@ extension AgentCore {
 
     /// A restic client for a server's repository, with the password read off
     /// the actor.
-    private func repositoryClient(forServer serverID: String) async throws -> ResticClient {
+    func repositoryClient(forServer serverID: String) async throws -> ResticClient {
         let id = try ServerID(validating: serverID)
         guard let server = try catalog.server(id) else {
             throw AgentError.unknownServer(serverID)

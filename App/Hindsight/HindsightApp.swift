@@ -65,6 +65,7 @@ struct HindsightApp: App {
                     await RecoveryKitExport.save(await model.recoveryKit(serverID: serverID))
                 },
                 chooseRepositoryDirectory: { RepositoryChooser.run() },
+                chooseReplicaDirectory: { ReplicaChooser.run() },
                 recoveryKits: recoveryKits,
                 sudoersResticPath: "/usr/local/bin/restic",
                 onOpenLoginItems: { AgentInstallation.openLoginItemsSettings() }
@@ -225,6 +226,7 @@ struct HindsightApp: App {
             return CatalogServerSummary(
                 id: server.id.value,
                 name: server.name,
+                hostname: server.endpoint.host,
                 lastBackupAt: lastBackup,
                 lastCheckPassed: check.map { $0.outcome == .passed },
                 scheduleExplanation: "Schedule is known to the agent."

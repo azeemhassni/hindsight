@@ -619,3 +619,76 @@ genuinely cannot be found fails in about a second with the reason.
 
 Also fixed: one test in sixteen runs compared a token against itself, because
 it built a wrong token by replacing the last hex character with `0`.
+
+## Restoring onto another machine, and rebuilding one
+
+Two things that were asked for together, one of which rested on a premise that
+was not true.
+
+### Restoring onto another server
+
+The source and the target are now genuinely separate. The repository and its
+password belong to the server the snapshot came from; the ssh connection and
+the files being overwritten belong to the machine it is going to. `RestoreCommand`
+carries both, the restore sheet gains a "Where" picker, and a machine that is
+not already known can be added from its connection details — the same host key
+scan, comparison and probe onboarding does, because a restore is the last
+operation that should reach a machine nobody has checked. Such a machine gets
+no repository, no password and no schedule: it is a destination, not a source,
+and it is reported as one rather than as a server that has never been backed up.
+
+Two safety faults fell out of the work, both of which were already there:
+
+- **Permission was granted for the wrong machine.** The Touch ID token was
+  keyed to the restore's `serverID` — the source. Authorising a write to one
+  server would have authorised a write to another. It is keyed to the machine
+  that actually changes, and a test holds it there.
+- **The confirmation asked for the wrong thing.** The agent compares what is
+  typed against the ssh host it is connected to; the sheet asked for the
+  server's display name. Any restore would have been refused after somebody
+  typed exactly what they were asked for, which suggests no restore has ever
+  completed through the window. Both ends use the ssh host now, and when the
+  files are going somewhere else it is the target's host that must be typed
+  and both machines that the Touch ID prompt names.
+
+### A replica image, and what one can honestly be
+
+A snapshot taken with the default profile contains no operating system. The
+profile captures `/etc`, `/root`, `/home`, `/opt`, `/srv`, `/usr/local`,
+container volumes, cron and `/data` — there is no kernel, no `/boot`, no
+`/usr`, no bootloader and no package database. No bootable image can be built
+from those bytes, and anything written with an `.iso` extension that claimed
+otherwise would be a data archive that does not boot.
+
+What a snapshot *does* hold, in its metadata, is the machine's description:
+`dpkg --get-selections` or `rpm -qa`, the enabled and running systemd units,
+`docker inspect` for every container with image digests, crontabs,
+`os-release`, `lsblk` and the network layout. So the replica is built the other
+way round. Hindsight writes a **cloud-init NoCloud seed** — a real ISO, labelled
+`cidata`, made with `hdiutil makehybrid`, which is already on every Mac — that
+turns a fresh cloud image of the same distribution into the same machine:
+hostname, the packages that were selected (never the ones marked `deinstall`),
+the units that were enabled, Docker where there was Docker, and Hindsight's own
+public key so the replica accepts a restore the moment it boots.
+
+It deliberately carries no data. That is gigabytes, it is already in the
+repository, and putting a repository password on a removable disk to fetch it
+would be the worst place to keep one. The seed says so on its face, in the
+sheet and again in a file written onto the replica itself, because assuming
+otherwise is the obvious mistake. The data goes on afterwards with the
+cross-server restore above, which is what makes the two features one feature.
+
+Where it cannot do something it says so rather than guessing: `rpm -qa` records
+each package with its version, which cannot be installed by name, so on those
+systems the list is written into the notes and nothing is installed; and
+packages since removed from a distribution's repositories will fail, with
+cloud-init recording which.
+
+### Backing up the whole machine
+
+For people who do want a true disk image, there is now a second backup scope,
+per server and off by default: **the whole root filesystem**, excluding only
+what cannot be restored (kernel interfaces) and what belongs to a container
+image rather than the host. It costs several gigabytes a server and a much
+longer first backup, which is why it is a choice and not the default. It takes
+effect on the next backup; snapshots already taken hold what they held.

@@ -261,6 +261,31 @@ public final class AppModel {
         }
     }
 
+    /// Builds the cloud-init seed that turns a fresh cloud image into a copy
+    /// of this server.
+    public func replicaSeed(
+        serverID: String,
+        snapshotID: String?,
+        destinationDirectory: String
+    ) async -> (path: String, notes: String, warnings: [String])? {
+        guard let send else { return nil }
+        switch await send(.replicaSeed(
+            serverID: serverID,
+            snapshotID: snapshotID,
+            destinationDirectory: destinationDirectory
+        )) {
+        case let .replicaSeed(path, notes, warnings):
+            note("Wrote a replica seed to \(path).")
+            return (path, notes, warnings)
+        case let .failed(message):
+            lastError = message
+            note("Could not build the replica image: \(message)", level: .error)
+            return nil
+        default:
+            return nil
+        }
+    }
+
     /// Stops or restarts scheduled backups for one server.
     @discardableResult
     public func setPaused(_ paused: Bool, serverID: String) async -> Bool {

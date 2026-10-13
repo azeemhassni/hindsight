@@ -22,6 +22,25 @@ enum RepositoryChooser {
     }
 }
 
+/// Choosing where a replica seed image is written.
+@MainActor
+enum ReplicaChooser {
+    static func run() -> String? {
+        let panel = NSOpenPanel()
+        panel.title = "Where should the replica image go?"
+        panel.message = """
+        A small ISO that rebuilds this machine on a fresh cloud image. It \
+        carries no data — restore that onto the replica afterwards.
+        """
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Choose"
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        return url.path
+    }
+}
+
 /// Choosing where to put a file taken out of a backup.
 @MainActor
 enum FileExport {
