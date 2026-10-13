@@ -45,7 +45,10 @@ struct HindsightApp: App {
             RootView(
                 model: model,
                 snapshots: { serverID in snapshots(forServer: serverID) },
-                repositorySize: { serverID in sizes.bytes(forServer: serverID) },
+                repositorySize: { serverID in
+                    _ = model.catalogRevision
+                    return sizes.bytes(forServer: serverID)
+                },
                 browse: { serverID, snapshot, path in
                     await browse(serverID: serverID, snapshot: snapshot, path: path)
                 },
@@ -67,6 +70,22 @@ struct HindsightApp: App {
                 onOpenLoginItems: { AgentInstallation.openLoginItemsSettings() }
             )
             .task { await start() }
+            // Sizes are a directory walk, so they are recomputed when a job
+            // has actually changed the repository rather than on every
+            // refresh. The heartbeat keeps relative times ("20h ago") honest
+            // and catches anything that arrives without an event — one status
+            // request a minute, which is nothing next to a backup.
+            .task(id: model.repositoryContentsChanged) {
+                guard model.repositoryContentsChanged > 0 else { return }
+                await refreshSizes()
+            }
+            .task {
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(30))
+                    guard !Task.isCancelled else { return }
+                    await model.refresh()
+                }
+            }
         }
         .defaultSize(width: 1040, height: 700)
         .defaultPosition(.center)
@@ -215,7 +234,14 @@ struct HindsightApp: App {
 
     /// Read straight from the catalog rather than proxied over XPC: the agent
     /// is the only writer, and WAL means these reads never block it.
+    ///
+    /// Reading `catalogRevision` is what makes this reactive. SQLite tells
+    /// SwiftUI nothing, so without an observed value touched here the list a
+    /// view drew first is the list it keeps until something unrelated
+    /// redraws it. This runs inside a view's body, which is where the
+    /// dependency has to be registered.
     private func snapshots(forServer serverID: String) -> [Snapshot] {
+        _ = model.catalogRevision
         guard let catalog = catalogStore.reader,
               let id = try? ServerID(validating: serverID)
         else { return [] }

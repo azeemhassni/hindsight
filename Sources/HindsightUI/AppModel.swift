@@ -39,6 +39,20 @@ public final class AppModel {
     /// Jobs that have finished during this session, and whether they worked.
     /// Onboarding watches this to know the first backup is done.
     public var finishedJobs: [String: Bool] = [:]
+    /// Bumped whenever the catalog behind the window has changed.
+    ///
+    /// Snapshots and history are read straight out of SQLite, which cannot
+    /// tell SwiftUI anything. A view that reads the catalog reads this too, so
+    /// there is something to invalidate on when the agent writes to it.
+    public private(set) var catalogRevision = 0
+    /// Set when a job has finished and whatever is expensive to recompute —
+    /// repository sizes — is worth recomputing. Read and cleared by the app.
+    public private(set) var repositoryContentsChanged = 0
+
+    /// One refresh per burst. A backup emits a catalog change per snapshot,
+    /// and eleven database dumps in a minute should cost one round trip to the
+    /// agent rather than eleven.
+    private var refreshIsScheduled = false
 
     /// Replaced rather than appended by the transport, so the view can be
     /// driven in tests without any XPC at all.
@@ -310,10 +324,30 @@ public final class AppModel {
         await refresh()
     }
 
+    /// Asks for fresh state soon, collapsing a burst into one request.
+    ///
+    /// Trailing edge rather than cancel-and-retry: a steady stream of events
+    /// would push a cancelled refresh back for ever, where this one is
+    /// guaranteed to run within the window of the first event that asked.
+    public func scheduleRefresh() {
+        guard !refreshIsScheduled else { return }
+        refreshIsScheduled = true
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let self else { return }
+            self.refreshIsScheduled = false
+            await self.refresh()
+            self.catalogRevision &+= 1
+        }
+    }
+
     public func apply(_ event: AgentEvent) {
         switch event {
         case let .jobStarted(job):
             append(.init(level: .info, message: "Backup started for \(job.serverID).", jobID: job.id))
+            // So the sidebar shows the run starting rather than waiting for
+            // the first progress report.
+            scheduleRefresh()
         case let .jobProgress(job):
             if let index = status?.runningJobs.firstIndex(where: { $0.id == job.id }) {
                 status?.runningJobs[index] = job
@@ -330,10 +364,18 @@ public final class AppModel {
                     : "Backup failed for \(serverID): \(message ?? "no reason given")",
                 jobID: id
             ))
+            // Health, the last backup time and the snapshot counts all change
+            // when a job ends, and none of them are in this event.
+            repositoryContentsChanged &+= 1
+            scheduleRefresh()
         case .catalogChanged:
-            break
+            // The agent saying the data behind the window moved. This used to
+            // do nothing at all, which is why the window only caught up when
+            // something else happened to ask.
+            scheduleRefresh()
         case let .integrityProblem(serverID, message):
             append(.init(level: .error, message: "\(serverID): \(message)", jobID: nil))
+            scheduleRefresh()
         case let .restoreFinished(serverID, succeeded, safetySnapshotID, message):
             lastRestoreEvent = event
             append(.init(
@@ -344,6 +386,8 @@ public final class AppModel {
                     : "Restore of \(serverID) failed: \(message ?? "no reason given")",
                 jobID: nil
             ))
+            repositoryContentsChanged &+= 1
+            scheduleRefresh()
         }
     }
 
