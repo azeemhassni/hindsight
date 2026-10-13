@@ -273,6 +273,15 @@ public enum CatalogSchema {
             )
         }
 
+        // Opt-in, per server: capturing the operating system as well as the
+        // data is what makes a bootable image possible, and costs several
+        // gigabytes a server for people who do not want one.
+        migrator.registerMigration("v6-backup-scope", foreignKeyChecks: .immediate) { database in
+            try database.alter(table: "repository") { table in
+                table.add(column: "backupScope", .text)
+            }
+        }
+
         return migrator
     }
 }

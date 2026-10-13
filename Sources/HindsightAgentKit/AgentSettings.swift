@@ -20,6 +20,18 @@ extension AgentCore {
         try applyPathRules(update, serverID: id)
         try applyRotation(update, serverID: id)
         try applyBandwidthLimit(update, serverID: id)
+        try applyBackupScope(update, serverID: id)
+    }
+
+    /// Changes what the next backup captures. Nothing already in the
+    /// repository is affected: a snapshot holds what it held.
+    private func applyBackupScope(_ update: ServerSettingsUpdate, serverID: ServerID) throws {
+        guard let raw = update.backupScope,
+              let scope = BackupScope(rawValue: raw),
+              var repository = try catalog.repository(forServer: serverID)
+        else { return }
+        repository.backupScope = scope.rawValue
+        try catalog.save(repository)
     }
 
     private func applySchedule(_ update: ServerSettingsUpdate, serverID: ServerID) throws {
@@ -142,6 +154,8 @@ extension AgentCore {
             bandwidthLimitKiB: repository?.bandwidthLimitKiB,
             checkRotationDivisor: repository?.checkRotationDivisor ?? 1,
             repositoryPath: repository?.path ?? "",
+            backupScope: repository?.backupScope
+                ?? BackupScope.dataAndConfiguration.rawValue
         )
     }
 }

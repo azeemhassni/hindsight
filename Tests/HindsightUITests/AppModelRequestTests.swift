@@ -67,7 +67,8 @@ struct AppModelRequestTests {
             excludePatterns: ["/srv/cache"],
             bandwidthLimitKiB: 1024,
             checkRotationDivisor: 8,
-            repositoryPath: "/Volumes/Backups/web-01"
+            repositoryPath: "/Volumes/Backups/web-01",
+            backupScope: "dataAndConfiguration"
         )
         model.send = { _ in .settings(report) }
 

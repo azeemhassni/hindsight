@@ -63,6 +63,8 @@ public struct RepositoryRecord: Codable, FetchableRecord, PersistableRecord, Has
     /// Upload ceiling for backups to this repository, in KiB/s. Nil means no
     /// limit, which is restic's own default.
     public var bandwidthLimitKiB: Int?
+    /// nil means the default, which is configuration and data only.
+    public var backupScope: String?
 
     public init(
         id: String,

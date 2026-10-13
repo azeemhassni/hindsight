@@ -46,6 +46,7 @@ struct SettingsForm: View {
                     retention: $flow.retention,
                     bandwidthLimitKiB: $flow.bandwidthLimitKiB,
                     repositoryPath: $flow.repositoryPath,
+                    backupScope: $flow.backupScope,
                     checkRotationWeeks: $flow.checkRotationDivisor,
                     excludePatterns: $flow.excludePatterns
                 )

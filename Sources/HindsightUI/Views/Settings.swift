@@ -8,6 +8,7 @@ public struct ServerSettingsView: View {
     @Binding var retention: RetentionPolicy
     @Binding var bandwidthLimitKiB: Int?
     @Binding var repositoryPath: String
+    @Binding var backupScope: BackupScope
     @Binding var checkRotationWeeks: Int
     @Binding var excludePatterns: [String]
 
@@ -20,6 +21,7 @@ public struct ServerSettingsView: View {
         retention: Binding<RetentionPolicy>,
         bandwidthLimitKiB: Binding<Int?>,
         repositoryPath: Binding<String>,
+        backupScope: Binding<BackupScope>,
         checkRotationWeeks: Binding<Int>,
         excludePatterns: Binding<[String]>
     ) {
@@ -28,6 +30,7 @@ public struct ServerSettingsView: View {
         _retention = retention
         _bandwidthLimitKiB = bandwidthLimitKiB
         _repositoryPath = repositoryPath
+        _backupScope = backupScope
         _checkRotationWeeks = checkRotationWeeks
         _excludePatterns = excludePatterns
     }
@@ -120,6 +123,35 @@ public struct ServerSettingsView: View {
                 """)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            }
+
+            Section("What to back up") {
+                Picker("Scope", selection: $backupScope) {
+                    ForEach(BackupScope.allCases, id: \.self) { scope in
+                        Text(scope.title).tag(scope)
+                    }
+                }
+                .labelsHidden()
+                .help("Choose between keeping data only and capturing the whole machine")
+                Text(backupScope.explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(6)
+                if backupScope == .wholeRootFilesystem {
+                    Label(
+                        """
+                        This takes effect on the next backup. Snapshots \
+                        already taken still hold what they held, so a disk \
+                        image can only be built from one taken after this.
+                        """,
+                        systemImage: "info.circle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(4)
+                }
             }
 
             Section("Never back up") {

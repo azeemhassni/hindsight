@@ -613,13 +613,24 @@ public actor AgentCore {
         // The profile's own excludes live in code so an upgrade can improve
         // them; anything a person added is layered on top.
         let extraExcludes = (try? userExcludes(forServer: server.id)) ?? []
+        let scope = repository.backupScope
+            .flatMap(BackupScope.init(rawValue:)) ?? .dataAndConfiguration
+        let base = scope.profile
         let profile = try BackupProfile(
-            includePaths: BackupProfile.fullServer.includePaths,
-            excludePatterns: BackupProfile.fullServer.excludePatterns + extraExcludes,
-            oneFileSystem: BackupProfile.fullServer.oneFileSystem,
-            excludeCaches: BackupProfile.fullServer.excludeCaches,
+            includePaths: base.includePaths,
+            excludePatterns: base.excludePatterns + extraExcludes,
+            // A whole-root backup has to cross into whatever else is mounted
+            // under it, or it is not the whole root.
+            oneFileSystem: scope == .wholeRootFilesystem ? false : base.oneFileSystem,
+            excludeCaches: base.excludeCaches,
             bandwidthLimitKiBPerSecond: repository.bandwidthLimitKiB
         )
+        if scope == .wholeRootFilesystem {
+            try? catalog.append(
+                "Backing up the whole root filesystem, including the operating system.",
+                to: job.id
+            )
+        }
 
         try? catalog.append("reading this server's repository password", to: job.id)
         // From the catalog, not from the configuration: the location is chosen

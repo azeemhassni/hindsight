@@ -16,6 +16,7 @@ public final class SettingsFlow {
     public var retention: RetentionPolicy
     public var bandwidthLimitKiB: Int?
     public var repositoryPath: String
+    public var backupScope: BackupScope
     public var checkRotationDivisor: Int
     public var excludePatterns: [String]
 
@@ -31,6 +32,7 @@ public final class SettingsFlow {
         var onlyOnACPower: Bool
         var retention: RetentionPolicy
         var bandwidthLimitKiB: Int?
+        var backupScope: BackupScope
         var checkRotationDivisor: Int
         var excludePatterns: [String]
     }
@@ -43,6 +45,7 @@ public final class SettingsFlow {
         retention: RetentionPolicy,
         bandwidthLimitKiB: Int?,
         repositoryPath: String,
+        backupScope: BackupScope,
         checkRotationDivisor: Int,
         excludePatterns: [String]
     ) {
@@ -53,6 +56,7 @@ public final class SettingsFlow {
         self.retention = retention
         self.bandwidthLimitKiB = bandwidthLimitKiB
         self.repositoryPath = repositoryPath
+        self.backupScope = backupScope
         self.checkRotationDivisor = checkRotationDivisor
         self.excludePatterns = excludePatterns
 
@@ -61,6 +65,7 @@ public final class SettingsFlow {
             onlyOnACPower: onlyOnACPower,
             retention: retention,
             bandwidthLimitKiB: bandwidthLimitKiB,
+            backupScope: backupScope,
             checkRotationDivisor: checkRotationDivisor,
             excludePatterns: excludePatterns
         )
@@ -131,6 +136,10 @@ public final class SettingsFlow {
             update.excludePatterns = excludePatterns
             changed = true
         }
+        if backupScope != original.backupScope {
+            update.backupScope = backupScope.rawValue
+            changed = true
+        }
 
         return changed ? update : nil
     }
@@ -177,6 +186,7 @@ extension SettingsFlow {
             retention: retention,
             bandwidthLimitKiB: report.bandwidthLimitKiB,
             repositoryPath: report.repositoryPath,
+            backupScope: BackupScope(rawValue: report.backupScope) ?? .dataAndConfiguration,
             checkRotationDivisor: report.checkRotationDivisor,
             excludePatterns: report.excludePatterns
         )

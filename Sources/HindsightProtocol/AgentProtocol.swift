@@ -140,6 +140,8 @@ public struct ServerSettingsReport: Codable, Sendable, Hashable {
     public var bandwidthLimitKiB: Int?
     public var checkRotationDivisor: Int
     public var repositoryPath: String
+    /// `BackupScope`, as a raw value.
+    public var backupScope: String
 
     public init(
         serverID: String,
@@ -153,7 +155,8 @@ public struct ServerSettingsReport: Codable, Sendable, Hashable {
         excludePatterns: [String],
         bandwidthLimitKiB: Int?,
         checkRotationDivisor: Int,
-        repositoryPath: String
+        repositoryPath: String,
+        backupScope: String
     ) {
         self.serverID = serverID
         self.cadence = cadence
@@ -167,6 +170,7 @@ public struct ServerSettingsReport: Codable, Sendable, Hashable {
         self.bandwidthLimitKiB = bandwidthLimitKiB
         self.checkRotationDivisor = checkRotationDivisor
         self.repositoryPath = repositoryPath
+        self.backupScope = backupScope
     }
 }
 
@@ -402,6 +406,9 @@ public struct ServerSettingsUpdate: Codable, Sendable, Hashable {
     public var excludePatterns: [String]?
     public var bandwidthLimitKiB: Int?
     public var checkRotationDivisor: Int?
+    /// `BackupScope` raw value. Changing it changes what the next backup
+    /// captures, not what earlier snapshots hold.
+    public var backupScope: String?
 
     public init(serverID: String) {
         self.serverID = serverID

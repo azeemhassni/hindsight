@@ -25,6 +25,7 @@ struct SettingsFlowTests {
             retention: .filesystemDefault,
             bandwidthLimitKiB: nil,
             repositoryPath: "/Volumes/Backups/repos/web-01",
+            backupScope: .dataAndConfiguration,
             checkRotationDivisor: 4,
             excludePatterns: ["/srv/cache"]
         )
@@ -104,6 +105,7 @@ struct SettingsFlowTests {
             retention: .filesystemDefault,
             bandwidthLimitKiB: nil,
             repositoryPath: "/tmp",
+            backupScope: .dataAndConfiguration,
             checkRotationDivisor: 4,
             excludePatterns: []
         )
