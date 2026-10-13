@@ -249,3 +249,46 @@ struct BundledBinaryDirectoryTests {
         #expect(AgentConfiguration.bundledBinaryDirectory(for: root.appendingPathComponent("Lonely.app")) == nil)
     }
 }
+
+/// A server that has simply never had its repository verified was shown in red
+/// as if a check had found corruption, with an explanation that came from the
+/// schedule because `healthReason` knew better and said nothing.
+@Suite("Server health")
+struct ServerHealthTests {
+    private let recent = Date().addingTimeInterval(-3600)
+
+    @Test("a repository that has never been checked is not failing")
+    func neverCheckedIsNotFailing() {
+        #expect(AgentCore.health(lastBackupAt: recent, lastCheckPassed: nil) == .healthy)
+        #expect(
+            AgentCore.healthReason(lastBackupAt: recent, lastCheckPassed: nil, recentJobs: []) == nil
+        )
+    }
+
+    @Test("a check that actually failed is still failing")
+    func failedCheckIsFailing() {
+        #expect(AgentCore.health(lastBackupAt: recent, lastCheckPassed: false) == .failing)
+        let reason = AgentCore.healthReason(
+            lastBackupAt: recent,
+            lastCheckPassed: false,
+            recentJobs: []
+        )
+        #expect(reason?.contains("integrity check") == true)
+    }
+
+    @Test("the badge and its explanation agree")
+    func badgeAgreesWithReason() {
+        let old = Date().addingTimeInterval(-72 * 3600)
+        // Stale, and says so.
+        #expect(AgentCore.health(lastBackupAt: old, lastCheckPassed: true) == .stale)
+        #expect(
+            AgentCore.healthReason(lastBackupAt: old, lastCheckPassed: true, recentJobs: [])?
+                .contains("days ago") == true
+        )
+        // Healthy, and nothing to say.
+        #expect(AgentCore.health(lastBackupAt: recent, lastCheckPassed: true) == .healthy)
+        #expect(
+            AgentCore.healthReason(lastBackupAt: recent, lastCheckPassed: true, recentJobs: []) == nil
+        )
+    }
+}

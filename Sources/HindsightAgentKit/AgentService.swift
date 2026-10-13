@@ -371,7 +371,10 @@ public actor AgentCore {
             return ServerStatus(
                 id: server.id.value,
                 name: server.name,
-                health: Self.health(lastBackupAt: lastBackup, lastCheckPassed: lastCheck?.outcome == .passed),
+                health: Self.health(
+                    lastBackupAt: lastBackup,
+                    lastCheckPassed: lastCheck.map { $0.outcome == .passed }
+                ),
                 lastBackupAt: lastBackup,
                 nextBackupAt: server.isPaused ? nil : schedule?.decision.nextFireDate,
                 scheduleExplanation: server.isPaused
@@ -428,9 +431,16 @@ public actor AgentCore {
         return line.count > 160 ? String(line.prefix(160)) + "…" : line
     }
 
-    public static func health(lastBackupAt: Date?, lastCheckPassed: Bool) -> ServerStatus.Health {
+    /// `lastCheckPassed` is optional for the same reason it is in
+    /// `healthReason`: nil means no integrity check has ever run, which is not
+    /// the same as one having failed. Taking a plain `Bool` meant the caller
+    /// collapsed "never checked" into `false`, and a repository that had
+    /// simply never been verified was shown as failing — in red, with the
+    /// explanation coming from somewhere else entirely, because `healthReason`
+    /// knew the difference and returned nothing.
+    public static func health(lastBackupAt: Date?, lastCheckPassed: Bool?) -> ServerStatus.Health {
         guard let lastBackupAt else { return .unknown }
-        if !lastCheckPassed { return .failing }
+        if lastCheckPassed == false { return .failing }
         return Date().timeIntervalSince(lastBackupAt) > 48 * 3600 ? .stale : .healthy
     }
 
