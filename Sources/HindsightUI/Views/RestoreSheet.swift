@@ -201,9 +201,11 @@ public struct RestoreSheetView: View {
                             ? "largecircle.fill.circle" : "circle")
                         VStack(alignment: .leading, spacing: 1) {
                             Text(formatted(snapshot.time))
-                            Text("\(Format.bytes(snapshot.sizeBytes)) · \(snapshot.kind.rawValue)")
+                            Text(subtitle(for: snapshot))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                         }
                         Spacer()
                     }
@@ -213,8 +215,7 @@ public struct RestoreSheetView: View {
                     // snapshot to restore.
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel(
-                        "\(formatted(snapshot.time)), \(Format.bytes(snapshot.sizeBytes)), "
-                            + snapshot.kind.rawValue
+                        "\(formatted(snapshot.time)), \(subtitle(for: snapshot))"
                             + (flow.snapshotID == snapshot.id.value ? ", chosen" : "")
                     )
                 }
@@ -224,6 +225,33 @@ public struct RestoreSheetView: View {
                     : "Restore the server as it was at \(formatted(snapshot.time))")
             }
         }
+    }
+
+    /// A dump's row has to say which database and which container it holds:
+    /// six containers each with a database called `postgres` produce six
+    /// snapshots that are otherwise identical.
+    private func subtitle(for snapshot: Snapshot) -> String {
+        var parts = [Format.bytes(snapshot.sizeBytes)]
+        guard snapshot.kind == .databaseDump else {
+            parts.append(snapshot.kind.rawValue)
+            return parts.joined(separator: " · ")
+        }
+        let database = snapshot.tags
+            .first { $0.hasPrefix("dbname:") }
+            .map { String($0.dropFirst("dbname:".count)) }
+        let source = snapshot.tags
+            .first { $0.hasPrefix("dbsrc:") }
+            .map { String($0.dropFirst("dbsrc:".count)) }
+        if let database { parts.append(database) }
+        if let source {
+            let container = source.split(separator: "-").dropFirst().joined(separator: "-")
+            if !container.isEmpty { parts.append("in \(container)") }
+        } else if database == nil {
+            // Dumps taken before the source was recorded carry only their
+            // path, which is the only thing left that distinguishes them.
+            parts.append(snapshot.paths.first ?? "database dump")
+        }
+        return parts.joined(separator: " · ")
     }
 
     /// Choosing a snapshot decides what kind of restore this is: a dump is
@@ -237,6 +265,9 @@ public struct RestoreSheetView: View {
         flow.databaseName = snapshot.tags
             .first { $0.hasPrefix("dbname:") }
             .map { String($0.dropFirst("dbname:".count)) }
+        flow.databaseSource = snapshot.tags
+            .first { $0.hasPrefix("dbsrc:") }
+            .map { String($0.dropFirst("dbsrc:".count)) }
         flow.loadIntoDatabase = nil
         if flow.isDatabaseDump {
             Task { await flow.loadDatabaseChoices() }
@@ -248,6 +279,13 @@ public struct RestoreSheetView: View {
     private var databasePicker: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Load into").font(.headline)
+            if let origin = flow.dumpOrigin {
+                Text("This dump holds **\(origin)**.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(3)
+            }
             if flow.availableDatabases.isEmpty {
                 Text("Looking for databases on \(flow.hostnameToConfirm)…")
                     .font(.callout)
@@ -267,6 +305,19 @@ public struct RestoreSheetView: View {
                 }
                 .labelsHidden()
                 .help("The database this dump is loaded into")
+            }
+            if flow.isLoadingElsewhere {
+                Label(
+                    """
+                    This is not where the dump came from. Loading a database \
+                    into a different one replaces whatever is in it.
+                    """,
+                    systemImage: "arrow.triangle.branch"
+                )
+                .font(.callout)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(4)
             }
             Label(
                 """

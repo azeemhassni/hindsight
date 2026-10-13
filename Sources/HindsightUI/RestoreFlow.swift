@@ -39,6 +39,9 @@ public final class RestoreFlow: Identifiable {
     public var isDatabaseDump = false
     /// The database inside the dump, from its `dbname:` tag.
     public var databaseName: String?
+    /// Where the dump was taken from, from its `dbsrc:` tag. Absent on dumps
+    /// taken before Hindsight recorded it, which is why nothing depends on it.
+    public var databaseSource: String?
     /// Which database on the target to load it into.
     public var loadIntoDatabase: String?
     public var availableDatabases: [DatabaseTargetReport] = []
@@ -96,11 +99,20 @@ public final class RestoreFlow: Identifiable {
     public func loadDatabaseChoices() async {
         guard isDatabaseDump else { return }
         availableDatabases = await model.databases(onServer: writtenServerID)
-        // The obvious one, when there is only one it could be.
-        let loadable = availableDatabases.filter(\.canLoadWhileRunning)
-        if loadIntoDatabase == nil, loadable.count == 1 {
-            loadIntoDatabase = loadable[0].id
+        guard loadIntoDatabase == nil else { return }
+        // The same place it came from, when that place is still there. This is
+        // the ordinary case — restoring a database onto the machine it was
+        // taken from — and guessing wrong here overwrites the wrong database.
+        if let databaseSource,
+           let match = availableDatabases.first(where: {
+               $0.id == databaseSource && $0.canLoadWhileRunning
+           }) {
+            loadIntoDatabase = match.id
+            return
         }
+        // Otherwise only when there is nothing to get wrong.
+        let loadable = availableDatabases.filter(\.canLoadWhileRunning)
+        if loadable.count == 1 { loadIntoDatabase = loadable[0].id }
     }
 
     /// The confirm button stays disabled until the hostname matches exactly.
@@ -182,6 +194,23 @@ public final class RestoreFlow: Identifiable {
         // Naming both ends, because restoring one machine's files onto another
         // is not what somebody confirming a restore would assume.
         return "restore \(what) from \(serverHostname) onto \(targetHostname)"
+    }
+
+    /// What the dump was taken from, in words, for the sheet to show.
+    public var dumpOrigin: String? {
+        guard isDatabaseDump else { return nil }
+        let database = databaseName ?? "everything"
+        guard let databaseSource else { return database }
+        // `postgres-coolify-db` reads better as the container it names.
+        let container = databaseSource.split(separator: "-").dropFirst().joined(separator: "-")
+        return container.isEmpty ? database : "\(database) in \(container)"
+    }
+
+    /// True when the dump is about to be loaded somewhere other than where it
+    /// came from, which is worth saying out loud.
+    public var isLoadingElsewhere: Bool {
+        guard let databaseSource, let loadIntoDatabase else { return false }
+        return databaseSource != loadIntoDatabase
     }
 
     /// The machine being written to, which is what has to be confirmed.

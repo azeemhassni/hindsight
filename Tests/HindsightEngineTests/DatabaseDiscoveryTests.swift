@@ -167,10 +167,14 @@ struct DatabaseDumpCommandTests {
             engine: .postgres,
             location: .container(name: "db", image: "postgres:16")
         )
-        #expect(DatabaseDumpCommand.fileName(for: target, database: "app") == "postgres-app.dump")
+        // A path per source, so each database gets its own retention group:
+        // restic groups by host and paths, and six containers sharing one path
+        // shared one history.
+        #expect(DatabaseDumpCommand.fileName(for: target, database: "app") == "postgres-db/app.dump")
         let tags = DatabaseDumpCommand.tags(for: target, database: "app").map(\.rawValue)
         #expect(tags.contains("db:postgres"))
         #expect(tags.contains("dbname:app"))
+        #expect(tags.contains("dbsrc:postgres-db"))
     }
 
     @Test("says which engines give a transactional dump and which do not")

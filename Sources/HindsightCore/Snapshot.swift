@@ -51,6 +51,9 @@ public enum SnapshotTag: Hashable, Sendable {
     case profile(String)
     case databaseEngine(String)
     case databaseName(String)
+    /// Which database the dump was taken from — `DatabaseTarget.identifier`,
+    /// so a container's dump can be told from another container's.
+    case databaseSource(String)
     case restore(JobID)
     case safety
 
@@ -60,6 +63,7 @@ public enum SnapshotTag: Hashable, Sendable {
         case let .profile(name): "profile:\(name)"
         case let .databaseEngine(engine): "db:\(engine)"
         case let .databaseName(name): "dbname:\(name)"
+        case let .databaseSource(source): "dbsrc:\(source)"
         case let .restore(id): "restore:\(id.value)"
         case .safety: "safety"
         }
@@ -76,6 +80,7 @@ public enum SnapshotTag: Hashable, Sendable {
         case "profile": self = .profile(value)
         case "db": self = .databaseEngine(value)
         case "dbname": self = .databaseName(value)
+        case "dbsrc": self = .databaseSource(value)
         case "restore": self = .restore(JobID(unchecked: value))
         default: return nil
         }

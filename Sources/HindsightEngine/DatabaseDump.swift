@@ -214,6 +214,19 @@ public enum DatabaseDumpCommand {
         }
     }
 
+    /// Where the dump lands inside its snapshot.
+    ///
+    /// The source is a directory rather than decoration. restic groups
+    /// snapshots by host and paths when applying retention, so six containers
+    /// each dumping a database called `postgres` all shared one path, one
+    /// group, and one history — `keep-daily 7` then kept seven snapshots
+    /// across all six databases rather than seven of each, and five of the six
+    /// were pruned away while the repository looked healthy. Measured against
+    /// restic 0.19.1: three databases, three days, `--keep-daily 3` kept one
+    /// arbitrary database per day and removed every snapshot of another.
+    ///
+    /// A path per source gives each database its own group, its own retention,
+    /// and a name that says where it came from.
     public static func fileName(for target: DatabaseTarget, database: String?) -> String {
         let suffix: String
         switch target.engine {
@@ -223,11 +236,17 @@ public enum DatabaseDumpCommand {
         case .redis: suffix = "rdb"
         }
         let name = database ?? "all"
-        return "\(target.engine.rawValue)-\(name).\(suffix)"
+        return "\(target.identifier)/\(name).\(suffix)"
     }
 
     public static func tags(for target: DatabaseTarget, database: String?) -> [SnapshotTag] {
-        var tags: [SnapshotTag] = [.hindsight, .databaseEngine(target.engine.rawValue)]
+        var tags: [SnapshotTag] = [
+            .hindsight,
+            .databaseEngine(target.engine.rawValue),
+            // So the interface can say which container a dump came from
+            // without parsing its path.
+            .databaseSource(target.identifier),
+        ]
         if let database { tags.append(.databaseName(database)) }
         return tags
     }

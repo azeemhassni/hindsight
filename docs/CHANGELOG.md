@@ -725,3 +725,42 @@ replaces the mode list with the database picker, skips the preview — what a
 dump replaces is inside a database, which a filesystem diff cannot describe —
 and says plainly that there is no safety snapshot to undo it with, so the
 previous dump in the repository is the way back.
+
+## Dumps now say where they came from — and keep their own history
+
+Asked to show which container a dump was taken from, so the right database
+could be chosen to load it into. It could not be shown, because it was never
+recorded: a dump carried `db:<engine>` and `dbname:<name>` and nothing else,
+and the snapshot's hostname is the server's, identical for every dump on it.
+
+On one real server that meant six Postgres containers, each with a database
+called `postgres`, produced snapshots identical in every visible way — same
+path `/postgres-postgres.dump`, same tags, same host. Forty-five of them, from
+six sources, indistinguishable.
+
+**The worse half.** restic applies retention per group, and a group is host
+plus paths. Six databases sharing one path shared one retention group, so
+`keep-daily 7` kept seven snapshots *across all six databases* rather than
+seven of each. Measured against restic 0.19.1 — three databases, three days,
+`--keep-daily 3` — it kept one arbitrary database per day and removed every
+single snapshot of another. Five of six databases could have been pruned out of
+the repository while it reported itself healthy. The same held for four Redis
+containers sharing `/redis-all.rdb`.
+
+A dump is now written to a path named for its source — `/postgres-coolify-db/
+umami.dump` rather than `/postgres-umami.dump` — which gives each database its
+own retention group, its own history, and a name that says where it came from.
+The source is tagged as well, `dbsrc:postgres-coolify-db`, so the interface
+need not parse paths.
+
+The restore sheet uses it. A dump's row says which database and which container
+it holds; the picker says what the dump holds; and the destination defaults to
+*the place it came from* when that place still exists, which is the ordinary
+case and the one where a wrong guess overwrites the wrong database. Where
+nothing matches — a replacement machine, where the container has a new name —
+nothing is chosen unless there is exactly one candidate, and the sheet says
+plainly when a dump is being loaded somewhere other than its origin.
+
+Snapshots taken before this keep their old paths and their old group. They are
+still listed, still restorable, and still say what little they recorded; what
+they cannot say is which of several identical siblings they are.

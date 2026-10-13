@@ -123,3 +123,61 @@ struct DatabaseLoadTests {
         #expect(!script.contains("--target"))
     }
 }
+
+/// restic applies retention per group, and a group is host plus paths. Six
+/// containers each dumping a database called `postgres` shared one path, so
+/// they shared one history: measured against restic 0.19.1, three databases
+/// over three days with `--keep-daily 3` kept one arbitrary database per day
+/// and removed every snapshot of another.
+@Suite("Dumps keep their own history")
+struct DumpGroupingTests {
+    private func target(_ container: String) -> DatabaseTarget {
+        DatabaseTarget(
+            engine: .postgres,
+            location: .container(name: container, image: "postgres:16")
+        )
+    }
+
+    @Test("two containers with the same database name get different paths")
+    func sameDatabaseDifferentContainers() {
+        let first = DatabaseDumpCommand.fileName(for: target("app-db"), database: "postgres")
+        let second = DatabaseDumpCommand.fileName(for: target("other-db"), database: "postgres")
+
+        #expect(first != second, "a shared path is a shared retention group")
+        #expect(first.contains("app-db"))
+        #expect(second.contains("other-db"))
+    }
+
+    @Test("the path names the container it came from")
+    func pathNamesTheSource() {
+        let name = DatabaseDumpCommand.fileName(
+            for: target("coolify-db"),
+            database: "umami"
+        )
+        #expect(name == "postgres-coolify-db/umami.dump")
+    }
+
+    @Test("the source is tagged as well, so it need not be parsed out of a path")
+    func sourceIsTagged() {
+        let tags = DatabaseDumpCommand
+            .tags(for: target("coolify-db"), database: "umami")
+            .map(\.rawValue)
+        #expect(tags.contains("dbsrc:postgres-coolify-db"))
+        #expect(tags.contains("dbname:umami"))
+        #expect(tags.contains("db:postgres"))
+    }
+
+    /// Redis dumps carry no database name, so before this they were
+    /// indistinguishable: four containers, one path, one group.
+    @Test("Redis dumps are told apart by their container")
+    func redisDumpsAreDistinct() {
+        func redis(_ container: String) -> DatabaseTarget {
+            DatabaseTarget(engine: .redis, location: .container(name: container, image: "redis:7"))
+        }
+        let first = DatabaseDumpCommand.fileName(for: redis("cache"), database: nil)
+        let second = DatabaseDumpCommand.fileName(for: redis("queue"), database: nil)
+        #expect(first == "redis-cache/all.rdb")
+        #expect(second == "redis-queue/all.rdb")
+        #expect(first != second)
+    }
+}

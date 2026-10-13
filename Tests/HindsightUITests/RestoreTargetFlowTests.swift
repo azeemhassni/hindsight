@@ -243,3 +243,90 @@ struct DumpRestoreFlowTests {
         #expect(flow.loadIntoDatabase == nil, "Redis cannot be loaded while running")
     }
 }
+
+/// Six Postgres containers each with a database called `postgres` produced six
+/// snapshots that were identical in every way the sheet could show. The source
+/// is recorded now, so a dump can say where it came from and be put back
+/// there.
+@MainActor
+@Suite("Knowing where a dump came from")
+struct DumpOriginTests {
+    private func flowFor(source: String?, databases: [DatabaseTargetReport]) -> RestoreFlow {
+        let model = AppModel()
+        model.send = { request in
+            if case .discoverDatabases = request { return .databases(databases) }
+            return .status(AgentStatus(version: "test", servers: [], runningJobs: []))
+        }
+        let flow = RestoreFlow(model: model, serverID: "web-01", serverHostname: "web-01.example")
+        flow.isDatabaseDump = true
+        flow.snapshotID = "aa11"
+        flow.databaseName = "postgres"
+        flow.databaseSource = source
+        return flow
+    }
+
+    private func report(_ id: String, _ name: String) -> DatabaseTargetReport {
+        DatabaseTargetReport(
+            id: id,
+            engine: "postgres",
+            displayName: name,
+            canLoadWhileRunning: true
+        )
+    }
+
+    @Test("says which database and container the dump holds")
+    func describesTheOrigin() {
+        let flow = flowFor(source: "postgres-coolify-db", databases: [])
+        #expect(flow.dumpOrigin == "postgres in coolify-db")
+
+        // Older dumps carry no source, and must not claim one.
+        let older = flowFor(source: nil, databases: [])
+        #expect(older.dumpOrigin == "postgres")
+    }
+
+    /// Guessing wrong here overwrites the wrong database.
+    @Test("puts a dump back where it came from")
+    func matchesTheSource() async {
+        let flow = flowFor(
+            source: "postgres-coolify-db",
+            databases: [
+                report("postgres-other-db", "postgres in other-db"),
+                report("postgres-coolify-db", "postgres in coolify-db"),
+                report("postgres-third-db", "postgres in third-db"),
+            ]
+        )
+        await flow.loadDatabaseChoices()
+        #expect(flow.loadIntoDatabase == "postgres-coolify-db")
+        #expect(!flow.isLoadingElsewhere)
+    }
+
+    /// Three candidates and no recorded source is exactly when a guess would
+    /// be wrong, so nothing is chosen.
+    @Test("chooses nothing when there are several and no source")
+    func refusesToGuess() async {
+        let flow = flowFor(
+            source: nil,
+            databases: [
+                report("postgres-one", "postgres in one"),
+                report("postgres-two", "postgres in two"),
+            ]
+        )
+        await flow.loadDatabaseChoices()
+        #expect(flow.loadIntoDatabase == nil)
+    }
+
+    /// Restoring onto a replacement machine, where the container has a
+    /// different name: nothing matches, so the person picks, and the sheet
+    /// says it is not where the dump came from.
+    @Test("says when a dump is going somewhere else")
+    func noticesADifferentDestination() async {
+        let flow = flowFor(
+            source: "postgres-coolify-db",
+            databases: [report("postgres-new-name", "postgres in new-name")]
+        )
+        await flow.loadDatabaseChoices()
+        // One loadable candidate, so it is chosen — but it is not the original.
+        #expect(flow.loadIntoDatabase == "postgres-new-name")
+        #expect(flow.isLoadingElsewhere)
+    }
+}
