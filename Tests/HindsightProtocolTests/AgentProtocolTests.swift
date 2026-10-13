@@ -28,6 +28,7 @@ struct AgentProtocolTests {
                 ServerStatus(
                     id: "web-01",
                     name: "Web 01",
+                    hostname: "198.51.100.10",
                     health: .healthy,
                     lastBackupAt: Date(timeIntervalSince1970: 1_800_000_000),
                     nextBackupAt: Date(timeIntervalSince1970: 1_800_003_600),
@@ -55,13 +56,13 @@ struct AgentProtocolTests {
             version: "0.1.0",
             servers: [
                 ServerStatus(
-                    id: "a", name: "A", health: .healthy,
+                    id: "a", name: "A", hostname: "a.example", health: .healthy,
                     lastBackupAt: Date(timeIntervalSince1970: 100),
                     nextBackupAt: Date(timeIntervalSince1970: 900),
                     scheduleExplanation: "", lastCheckPassed: true
                 ),
                 ServerStatus(
-                    id: "b", name: "B", health: .failing,
+                    id: "b", name: "B", hostname: "b.example", health: .failing,
                     lastBackupAt: Date(timeIntervalSince1970: 300),
                     nextBackupAt: Date(timeIntervalSince1970: 500),
                     scheduleExplanation: "", lastCheckPassed: false

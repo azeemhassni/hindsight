@@ -117,3 +117,69 @@ private actor Captured {
     private(set) var updates: [ServerSettingsUpdate] = []
     func record(_ update: ServerSettingsUpdate) { updates.append(update) }
 }
+
+/// What the sheet asks you to type has to be what the agent checks.
+///
+/// The agent compares the typed value against the ssh host it is connected to;
+/// the sheet used to ask for the server's display name, so a restore would be
+/// refused after someone typed exactly what they were asked for.
+@MainActor
+@Suite("Restore confirmation")
+struct RestoreConfirmationTests {
+    private func flow(host: String) -> RestoreFlow {
+        let flow = RestoreFlow(
+            model: AppModel(),
+            serverID: "web-01",
+            serverHostname: host
+        )
+        flow.snapshotID = "aa11"
+        flow.preview = RestorePreviewReport(
+            changes: [],
+            safetySnapshotID: "ffee",
+            bytesAdded: 0,
+            bytesRemoved: 0
+        )
+        return flow
+    }
+
+    @Test("the hostname to confirm is the ssh host")
+    func confirmsTheSSHHost() {
+        let flow = flow(host: "connection.example.dev")
+        #expect(flow.hostnameToConfirm == "connection.example.dev")
+
+        flow.typedHostname = "Example server"
+        #expect(!flow.canConfirm, "a display name must not confirm a restore")
+
+        flow.typedHostname = "connection.example.dev"
+        #expect(flow.canConfirm)
+    }
+
+    @Test("restoring onto another machine confirms that machine")
+    func confirmsTheTarget() {
+        let flow = flow(host: "old.example.dev")
+        flow.targetServerID = "web-02"
+        flow.targetHostname = "new.example.dev"
+
+        #expect(flow.hostnameToConfirm == "new.example.dev")
+        #expect(flow.writtenServerID == "web-02")
+
+        // The source's hostname must not unlock a write to the target.
+        flow.typedHostname = "old.example.dev"
+        #expect(!flow.canConfirm)
+
+        flow.typedHostname = "new.example.dev"
+        #expect(flow.canConfirm)
+    }
+
+    @Test("the Touch ID prompt names both machines when they differ")
+    func promptNamesBothEnds() {
+        let flow = flow(host: "old.example.dev")
+        #expect(flow.confirmationReason.contains("to old.example.dev"))
+
+        flow.targetServerID = "web-02"
+        flow.targetHostname = "new.example.dev"
+        #expect(flow.confirmationReason.contains("from old.example.dev"))
+        #expect(flow.confirmationReason.contains("onto new.example.dev"))
+        #expect(flow.title.contains("onto new.example.dev"))
+    }
+}

@@ -29,6 +29,11 @@ public final class RestoreFlow: Identifiable {
     public var stage: Stage = .choosing
     public var serverID: String
     public var serverHostname: String
+    /// Where the snapshot is written, when that is not where it came from.
+    /// Both the hostname that has to be typed and the permission asked for
+    /// belong to this machine, because this is the one that changes.
+    public var targetServerID: String?
+    public var targetHostname: String?
     public var snapshotID: String?
     public var paths: [String] = []
     public var targetPath: String?
@@ -56,6 +61,7 @@ public final class RestoreFlow: Identifiable {
         guard let snapshotID else { return nil }
         return RestoreCommand(
             serverID: serverID,
+            targetServerID: targetServerID,
             snapshotID: snapshotID,
             paths: paths,
             targetPath: targetPath,
@@ -65,12 +71,21 @@ public final class RestoreFlow: Identifiable {
         )
     }
 
+    /// What the sheet is headed, which changes when the files are going
+    /// somewhere other than where they came from.
+    public var title: String {
+        guard let targetHostname, targetHostname != serverHostname else {
+            return "Restore \(serverHostname)"
+        }
+        return "Restore \(serverHostname) onto \(targetHostname)"
+    }
+
     public var canReview: Bool { snapshotID != nil }
 
     /// The confirm button stays disabled until the hostname matches exactly.
     public var canConfirm: Bool {
         preview != nil && typedHostname.trimmingCharacters(in: .whitespacesAndNewlines)
-            .caseInsensitiveCompare(serverHostname) == .orderedSame
+            .caseInsensitiveCompare(hostnameToConfirm) == .orderedSame
     }
 
     public func prepare() async {
@@ -101,7 +116,7 @@ public final class RestoreFlow: Identifiable {
         // out a token that lasts minutes and is spent once, so what follows is
         // tied to this confirmation and cannot be replayed later.
         stage = .authorizing
-        guard let token = await model.authorizeRestore(serverID: serverID) else {
+        guard let token = await model.authorizeRestore(serverID: writtenServerID) else {
             stage = .failed(model.lastError ?? "The agent would not authorise this restore.")
             return
         }
@@ -126,14 +141,26 @@ public final class RestoreFlow: Identifiable {
         let what = paths.isEmpty
             ? "everything in this snapshot"
             : (paths.count == 1 ? paths[0] : "\(paths.count) paths")
-        return "restore \(what) to \(serverHostname)"
+        guard let targetHostname, targetHostname != serverHostname else {
+            return "restore \(what) to \(serverHostname)"
+        }
+        // Naming both ends, because restoring one machine's files onto another
+        // is not what somebody confirming a restore would assume.
+        return "restore \(what) from \(serverHostname) onto \(targetHostname)"
     }
+
+    /// The machine being written to, which is what has to be confirmed.
+    public var writtenServerID: String { targetServerID ?? serverID }
+
+    /// The hostname the person must type. The target's, when restoring
+    /// somewhere else.
+    public var hostnameToConfirm: String { targetHostname ?? serverHostname }
 
     /// Called when the agent reports the outcome, so the sheet reflects what
     /// actually happened rather than what was requested.
     public func apply(_ event: AgentEvent) {
         guard case let .restoreFinished(server, succeeded, safetySnapshotID, message) = event,
-              server == serverID
+              server == serverID || server == targetServerID
         else { return }
         stage = succeeded
             ? .finished(succeeded: true, safetySnapshotID: safetySnapshotID)
@@ -166,5 +193,18 @@ public final class RestoreFlow: Identifiable {
         case let .failed(message):
             return message
         }
+    }
+}
+
+/// A machine a snapshot could be restored onto.
+public struct RestoreDestination: Sendable, Hashable, Identifiable {
+    public var id: String
+    public var name: String
+    public var hostname: String
+
+    public init(id: String, name: String, hostname: String) {
+        self.id = id
+        self.name = name
+        self.hostname = hostname
     }
 }

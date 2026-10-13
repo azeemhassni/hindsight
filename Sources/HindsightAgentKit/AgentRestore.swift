@@ -48,9 +48,17 @@ extension AgentCore {
     /// The same append-only server and reverse tunnel a backup uses: append-only
     /// does not restrict reads, so a restore needs no extra privilege on the
     /// repository.
+    /// Opens a restore session, reading from one server's repository and
+    /// writing to another.
+    ///
+    /// `source` owns the repository and its password; `target` owns the ssh
+    /// connection and the filesystem being written to. They are the same
+    /// server for an ordinary restore, and different ones when a snapshot is
+    /// being put onto a replacement machine.
     func withRestoreSession<T: Sendable>(
-        server: Server,
+        source: Server,
         repository: RepositoryRecord,
+        target: Server,
         jobID: JobID,
         _ body: @Sendable @escaping (RestoreSession, SSHClient, SSHDestination, ResticClient) async throws -> T
     ) async throws -> T {
@@ -58,11 +66,12 @@ extension AgentCore {
         let paths = sshPaths()
         let client = SSHClient(paths: paths, policy: .fromEnvironment())
         let destination = SSHDestination(
-            server: server,
-            identityFile: identityFile(for: server, paths: paths)
+            server: target,
+            identityFile: identityFile(for: target, paths: paths)
         )
         let store = BinaryStore(directory: configuration.binaryDirectory)
-        let password = try await secretOrCreate(.repositoryPassword(server.id))
+        // The password reads the source's repository, wherever it is written.
+        let password = try await secretOrCreate(.repositoryPassword(source.id))
 
         let facts = try await client.probeFacts(on: destination)
         let binary = try PinnedBinaries.restic(for: facts.platform.architecture)
@@ -73,7 +82,7 @@ extension AgentCore {
         // chosen during onboarding and recorded in the catalog.
         let repositoryURL = URL(fileURLWithPath: repository.path)
         let repositoryRoot = repositoryURL.deletingLastPathComponent()
-        let credential = RestServerCredential.generate(username: server.id.value)
+        let credential = RestServerCredential.generate(username: source.id.value)
         let restServer = RestServer(
             configuration: RestServer.Configuration(
                 repositoryRoot: repositoryRoot,
@@ -99,7 +108,7 @@ extension AgentCore {
                     destination: destination,
                     remoteResticPath: remoteRestic,
                     repositorySecret: Secret(
-                        label: "rest-repository/\(server.id.value)",
+                        label: "rest-repository/\(source.id.value)",
                         value: url
                     ),
                     repositoryPassword: password
@@ -119,6 +128,9 @@ extension AgentCore {
         }
     }
 
+    /// `server` is the target: the hostname typed to confirm, and the
+    /// authorized-keys path protected from being overwritten, both belong to
+    /// the machine being written to.
     func restorePlan(from command: RestoreCommand, server: Server) throws -> RestorePlan {
         let mode = RestoreMode(rawValue: command.mode) ?? .standard
         let paths = sshPaths()
@@ -143,23 +155,45 @@ extension AgentCore {
         )
     }
 
-    // MARK: Preview
-
-    func previewRestore(_ command: RestoreCommand) async throws -> RestorePreviewReport {
+    /// Resolves the two ends of a restore.
+    ///
+    /// The target defaults to the source, which is every ordinary restore.
+    /// A target that is named must already be a server Hindsight knows: its
+    /// host key has been confirmed and its ssh configuration is managed, and a
+    /// restore is the last operation that should be reaching a machine on
+    /// details nobody has checked.
+    func restoreEnds(
+        for command: RestoreCommand
+    ) throws -> (source: Server, repository: RepositoryRecord, target: Server) {
         guard let id = try? ServerID(validating: command.serverID),
-              let server = try catalog.server(id),
+              let source = try catalog.server(id),
               let repository = try catalog.repository(forServer: id)
         else { throw AgentError.unknownServer(command.serverID) }
 
-        let plan = try restorePlan(from: command, server: server)
+        guard let targetID = command.targetServerID, targetID != command.serverID else {
+            return (source, repository, source)
+        }
+        guard let resolved = try? ServerID(validating: targetID),
+              let target = try catalog.server(resolved)
+        else { throw AgentError.unknownServer(targetID) }
+        return (source, repository, target)
+    }
+
+    // MARK: Preview
+
+    func previewRestore(_ command: RestoreCommand) async throws -> RestorePreviewReport {
+        let ends = try restoreEnds(for: command)
+        // The plan is described in terms of the machine being written to.
+        let plan = try restorePlan(from: command, server: ends.target)
         let jobID = JobID.generate()
         // Hoisted so the session body captures plain values rather than the
         // actor, which would make every access an await inside the closure.
         let binaryDirectory = configuration.binaryDirectory
 
         return try await withRestoreSession(
-            server: server,
-            repository: repository,
+            source: ends.source,
+            repository: ends.repository,
+            target: ends.target,
             jobID: jobID
         ) { session, client, destination, local in
             let executor = RestoreExecutor(
@@ -192,17 +226,29 @@ extension AgentCore {
         guard let command = takePendingRestore(job.id.value) else {
             throw AgentError.noRestoreCommand(job.id.value)
         }
-        let plan = try restorePlan(from: command, server: server)
+        // `server` is the job's own server, which is the source. Where this
+        // lands is the command's business, and may be a different machine.
+        _ = server
+        let ends = try restoreEnds(for: command)
+        let plan = try restorePlan(from: command, server: ends.target)
         let paths = command.paths.isEmpty ? ["/"] : command.paths
         let binaryDirectory = configuration.binaryDirectory
         let catalog = self.catalog
         let jobID = job.id
 
+        if ends.target.id != ends.source.id {
+            try catalog.append(
+                "Restoring \(ends.source.name)'s snapshot onto \(ends.target.name) "
+                    + "(\(ends.target.endpoint.host)).",
+                to: jobID
+            )
+        }
         try catalog.append("Restoring \(plan.scope.describedForConfirmation).", to: jobID)
 
         let safetySnapshotID = try await withRestoreSession(
-            server: server,
-            repository: repository,
+            source: ends.source,
+            repository: ends.repository,
+            target: ends.target,
             jobID: job.id
         ) { session, client, destination, local in
             let facts = try await client.probeFacts(on: destination)

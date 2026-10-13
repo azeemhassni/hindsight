@@ -154,3 +154,129 @@ struct RestoreAuthorizationTests {
         #expect(!message.contains("Touch ID"))
     }
 }
+
+/// Restoring one server's snapshot onto a different machine.
+///
+/// The source owns the repository and its password; the target owns the ssh
+/// connection and the files being overwritten. Permission belongs to the
+/// target, because the target is what changes.
+@Suite("Restoring onto another server")
+struct CrossServerRestoreTests {
+    private func makeCore() throws -> AgentCore {
+        let catalog = try Catalog.inMemory()
+        for (id, host) in [("web-01", "127.0.0.1"), ("web-02", "127.0.0.2")] {
+            let server = try Server(
+                id: try ServerID(validating: id),
+                name: id,
+                endpoint: try SSHEndpoint(host: host, port: 2222, user: "root"),
+                authentication: .managedKey,
+                privilege: .root
+            )
+            try catalog.save(server)
+        }
+        // Only the source has a repository: the target is a machine to write
+        // to, not somewhere backups are kept.
+        try catalog.save(
+            RepositoryRecord(id: "repo-web-01", serverId: "web-01", path: "/tmp/repo")
+        )
+        return AgentCore(
+            configuration: .fallback,
+            catalog: catalog,
+            secrets: InMemorySecretStore(),
+            version: "test"
+        )
+    }
+
+    private func command(target: String?, authorization: String?) -> RestoreCommand {
+        RestoreCommand(
+            serverID: "web-01",
+            targetServerID: target,
+            snapshotID: "aa11bb22",
+            paths: [],
+            targetPath: nil,
+            mode: "standard",
+            typedHostname: "127.0.0.2",
+            optedInExclusions: [],
+            authorization: authorization
+        )
+    }
+
+    @Test("resolves the repository from the source and the connection from the target")
+    func resolvesBothEnds() async throws {
+        let core = try makeCore()
+        let ends = try await core.restoreEnds(for: command(target: "web-02", authorization: nil))
+
+        #expect(ends.source.id.value == "web-01")
+        #expect(ends.repository.path == "/tmp/repo")
+        #expect(ends.target.id.value == "web-02")
+        #expect(ends.target.endpoint.host == "127.0.0.2")
+    }
+
+    @Test("an ordinary restore has the same server at both ends")
+    func defaultsToTheSourceServer() async throws {
+        let core = try makeCore()
+        let ends = try await core.restoreEnds(for: command(target: nil, authorization: nil))
+        #expect(ends.source.id == ends.target.id)
+
+        // Naming the source explicitly is the same thing.
+        let named = try await core.restoreEnds(for: command(target: "web-01", authorization: nil))
+        #expect(named.source.id == named.target.id)
+    }
+
+    @Test("refuses a target the agent does not know")
+    func refusesAnUnknownTarget() async throws {
+        let core = try makeCore()
+        await #expect(throws: (any Error).self) {
+            try await core.restoreEnds(for: command(target: "web-99", authorization: nil))
+        }
+    }
+
+    @Test("a target with no repository of its own is still a valid target")
+    func targetNeedsNoRepository() async throws {
+        let core = try makeCore()
+        let ends = try await core.restoreEnds(for: command(target: "web-02", authorization: nil))
+        #expect(ends.target.id.value == "web-02")
+    }
+
+    /// The token says a person was at the Mac and meant to write to a
+    /// particular machine. Permission to overwrite the server the snapshot
+    /// came from must not become permission to overwrite a different one.
+    @Test("permission for one machine is not permission for another")
+    func permissionDoesNotTransfer() async throws {
+        let core = try makeCore()
+
+        // Authorised for the source, then aimed at the target.
+        guard case let .restoreAuthorization(token, _) =
+            await core.issueRestoreAuthorization(serverID: "web-01")
+        else {
+            Issue.record("expected a token")
+            return
+        }
+        let refusal = await core.refusalForRestoreAuthorization(
+            command(target: "web-02", authorization: token)
+        )
+        #expect(refusal != nil, "a token for web-01 must not authorise writing to web-02")
+        #expect(refusal?.contains("not one this agent issued") == true)
+    }
+
+    @Test("a token issued for the target authorises the restore")
+    func permissionForTheTargetWorks() async throws {
+        let core = try makeCore()
+        guard case let .restoreAuthorization(token, _) =
+            await core.issueRestoreAuthorization(serverID: "web-02")
+        else {
+            Issue.record("expected a token")
+            return
+        }
+        let refusal = await core.refusalForRestoreAuthorization(
+            command(target: "web-02", authorization: token)
+        )
+        #expect(refusal == nil)
+    }
+
+    @Test("the machine written to is the target, and that is what is authorised")
+    func writtenServerIsTheTarget() {
+        #expect(command(target: "web-02", authorization: nil).writtenServerID == "web-02")
+        #expect(command(target: nil, authorization: nil).writtenServerID == "web-01")
+    }
+}

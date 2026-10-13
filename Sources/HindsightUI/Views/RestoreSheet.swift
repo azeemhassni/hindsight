@@ -11,17 +11,22 @@ public struct RestoreSheetView: View {
     @Bindable var flow: RestoreFlow
     let snapshots: [Snapshot]
     let availabilityExplanations: [(mode: String, title: String, available: Bool, explanation: String)]
+    /// Other machines this snapshot could be written to. Empty for the
+    /// ordinary case, which keeps the sheet as it was.
+    let otherServers: [RestoreDestination]
     let onClose: () -> Void
 
     public init(
         flow: RestoreFlow,
         snapshots: [Snapshot],
         availabilityExplanations: [(mode: String, title: String, available: Bool, explanation: String)],
+        otherServers: [RestoreDestination] = [],
         onClose: @escaping () -> Void
     ) {
         self.flow = flow
         self.snapshots = snapshots
         self.availabilityExplanations = availabilityExplanations
+        self.otherServers = otherServers
         self.onClose = onClose
     }
 
@@ -42,7 +47,7 @@ public struct RestoreSheetView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Restore \(flow.serverHostname)").font(.title3.bold())
+            Text(flow.title).font(.title3.bold())
             Text(flow.statusText)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -58,6 +63,7 @@ public struct RestoreSheetView: View {
         case .choosing:
             VStack(alignment: .leading, spacing: 20) {
                 snapshotPicker
+                if !otherServers.isEmpty { targetPicker }
                 modeList
             }
         case .preparing, .running:
@@ -71,7 +77,7 @@ public struct RestoreSheetView: View {
                 Text("Confirm with Touch ID")
                     .font(.headline)
                 Text("""
-                A restore writes to \(flow.serverHostname). Hindsight asks for \
+                A restore writes to \(flow.hostnameToConfirm). Hindsight asks for \
                 Touch ID, or your login password, before it starts.
                 """)
                 .foregroundStyle(.secondary)
@@ -104,6 +110,52 @@ public struct RestoreSheetView: View {
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .lineLimit(6)
+        }
+    }
+
+    /// Where the snapshot lands. Only shown when there is somewhere else it
+    /// could go, so an ordinary restore is not made to look like a choice.
+    private var targetPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Where").font(.headline)
+            Picker("Where", selection: Binding(
+                get: { flow.targetServerID ?? flow.serverID },
+                set: { chosen in
+                    if chosen == flow.serverID {
+                        flow.targetServerID = nil
+                        flow.targetHostname = nil
+                    } else {
+                        flow.targetServerID = chosen
+                        flow.targetHostname = otherServers.first { $0.id == chosen }?.hostname
+                    }
+                    // The hostname that was typed confirmed a different
+                    // machine, so it cannot carry over.
+                    flow.typedHostname = ""
+                    flow.preview = nil
+                }
+            )) {
+                Text("Back onto \(flow.serverHostname)").tag(flow.serverID)
+                ForEach(otherServers, id: \.id) { server in
+                    Text("Onto \(server.name) (\(server.hostname))").tag(server.id)
+                }
+            }
+            .labelsHidden()
+            .help("Choose the machine these files are written to")
+            if flow.targetServerID != nil {
+                Label(
+                    """
+                    This writes one server's files onto another. Anything the \
+                    snapshot holds for a machine's own identity — its network \
+                    configuration, host keys and filesystem table — stays \
+                    excluded unless you opt in.
+                    """,
+                    systemImage: "exclamationmark.triangle"
+                )
+                .font(.callout)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(6)
+            }
         }
     }
 
@@ -233,7 +285,7 @@ public struct RestoreSheetView: View {
 
     private var confirmation: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Type **\(flow.serverHostname)** to confirm.")
+            Text("Type **\(flow.hostnameToConfirm)** to confirm.")
             TextField("Hostname", text: $flow.typedHostname)
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 340)
@@ -251,7 +303,7 @@ public struct RestoreSheetView: View {
 
     private var restoreHelp: String {
         flow.canConfirm
-            ? "Write these files back to \(flow.serverHostname); the safety snapshot can undo it"
+            ? "Write these files back to \(flow.hostnameToConfirm); the safety snapshot can undo it"
             : "Type the server's hostname to confirm"
     }
 

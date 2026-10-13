@@ -593,6 +593,7 @@ extension AppModel {
                 ServerStatus(
                     id: summary.id,
                     name: summary.name,
+                    hostname: summary.hostname,
                     health: Self.health(
                         lastBackupAt: summary.lastBackupAt,
                         lastCheckPassed: summary.lastCheckPassed,
@@ -623,6 +624,7 @@ extension AppModel {
 public struct CatalogServerSummary: Sendable, Hashable {
     public var id: String
     public var name: String
+    public var hostname: String
     public var lastBackupAt: Date?
     public var lastCheckPassed: Bool?
     public var scheduleExplanation: String
@@ -630,12 +632,14 @@ public struct CatalogServerSummary: Sendable, Hashable {
     public init(
         id: String,
         name: String,
+        hostname: String,
         lastBackupAt: Date?,
         lastCheckPassed: Bool?,
         scheduleExplanation: String
     ) {
         self.id = id
         self.name = name
+        self.hostname = hostname
         self.lastBackupAt = lastBackupAt
         self.lastCheckPassed = lastCheckPassed
         self.scheduleExplanation = scheduleExplanation

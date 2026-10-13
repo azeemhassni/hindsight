@@ -131,6 +131,7 @@ public struct RootView: View {
                 flow: flow,
                 snapshots: snapshots(flow.serverID),
                 availabilityExplanations: Self.modeExplanations,
+                otherServers: restoreDestinations(excluding: flow.serverID),
                 onClose: { restoreFlow = nil }
             )
         }
@@ -394,8 +395,22 @@ public struct RootView: View {
         )
     }
 
+    /// Machines a snapshot could be written to, other than the one it came
+    /// from. Only servers Hindsight already knows: their host keys have been
+    /// confirmed and their connections are managed, and a restore is the last
+    /// thing that should reach a machine nobody has checked.
+    private func restoreDestinations(excluding serverID: String) -> [RestoreDestination] {
+        model.servers
+            .filter { $0.id != serverID }
+            .map { RestoreDestination(id: $0.id, name: $0.name, hostname: $0.hostname) }
+    }
+
     private func flow(for server: ServerStatus) -> RestoreFlow {
-        RestoreFlow(model: model, serverID: server.id, serverHostname: server.name)
+        // The ssh host, not the display name: the agent checks what was typed
+        // against the host it is connected to, so asking for anything else
+        // would have the restore refused after the person typed exactly what
+        // the sheet asked for.
+        RestoreFlow(model: model, serverID: server.id, serverHostname: server.hostname)
     }
 
     private func startOnboarding() {

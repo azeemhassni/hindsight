@@ -50,11 +50,14 @@ extension AgentCore {
             login password, which is what tells the agent a person asked for it.
             """
         }
-        guard let held = restoreAuthorizations[command.serverID] else {
+        // Keyed by the machine being written to, not the one the snapshot came
+        // from. For a restore onto a replacement server those differ, and
+        // permission for one must never be permission for the other.
+        guard let held = restoreAuthorizations[command.writtenServerID] else {
             return "That authorisation is not one this agent issued. Try the restore again."
         }
         // Spent either way: a token offered once is finished, right or wrong.
-        restoreAuthorizations[command.serverID] = nil
+        restoreAuthorizations[command.writtenServerID] = nil
 
         guard held.isValid(now: now) else {
             return """

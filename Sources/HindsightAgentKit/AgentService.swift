@@ -371,6 +371,7 @@ public actor AgentCore {
             return ServerStatus(
                 id: server.id.value,
                 name: server.name,
+                hostname: server.endpoint.host,
                 health: Self.health(
                     lastBackupAt: lastBackup,
                     lastCheckPassed: lastCheck.map { $0.outcome == .passed }

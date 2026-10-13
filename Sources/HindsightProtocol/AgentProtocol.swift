@@ -300,7 +300,14 @@ public struct ServerProbeReport: Codable, Sendable, Hashable {
 /// engine, so the engine's enums are named here as strings and validated on the
 /// agent's side rather than trusted.
 public struct RestoreCommand: Codable, Sendable, Hashable {
+    /// The server whose repository the snapshot comes from.
     public var serverID: String
+    /// Where it is written. nil restores onto the server it came from.
+    ///
+    /// Separate from `serverID` because they are genuinely different things:
+    /// the repository and its password belong to the source, the ssh
+    /// connection and the files being overwritten belong to the target.
+    public var targetServerID: String?
     public var snapshotID: String
     /// The paths to restore. Empty means the whole snapshot.
     public var paths: [String]
@@ -317,8 +324,14 @@ public struct RestoreCommand: Codable, Sendable, Hashable {
     /// Mac. A preview needs none: it changes nothing on the server.
     public var authorization: String?
 
+    /// The machine this restore changes, which is the one permission has to be
+    /// granted for. Writing to a server is what needs authorising; reading a
+    /// repository is not.
+    public var writtenServerID: String { targetServerID ?? serverID }
+
     public init(
         serverID: String,
+        targetServerID: String? = nil,
         snapshotID: String,
         paths: [String],
         targetPath: String? = nil,
@@ -328,6 +341,7 @@ public struct RestoreCommand: Codable, Sendable, Hashable {
         authorization: String? = nil
     ) {
         self.serverID = serverID
+        self.targetServerID = targetServerID
         self.snapshotID = snapshotID
         self.paths = paths
         self.targetPath = targetPath
@@ -454,6 +468,10 @@ public struct ServerStatus: Codable, Sendable, Hashable {
 
     public var id: String
     public var name: String
+    /// The ssh host. Distinct from `name`, which is what a person called the
+    /// server: a restore confirmation is checked against this, because this is
+    /// what identifies the machine being written to.
+    public var hostname: String
     public var health: Health
     public var lastBackupAt: Date?
     public var nextBackupAt: Date?
@@ -468,6 +486,7 @@ public struct ServerStatus: Codable, Sendable, Hashable {
     public init(
         id: String,
         name: String,
+        hostname: String,
         health: Health,
         lastBackupAt: Date?,
         nextBackupAt: Date?,
@@ -478,6 +497,7 @@ public struct ServerStatus: Codable, Sendable, Hashable {
     ) {
         self.id = id
         self.name = name
+        self.hostname = hostname
         self.health = health
         self.lastBackupAt = lastBackupAt
         self.nextBackupAt = nextBackupAt
