@@ -67,15 +67,22 @@ public struct ReplicaResultSheet: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("How to use it").font(.headline)
                         Text("""
-                        Create a machine from your provider's cloud image of the \
-                        same distribution, attach this ISO as a second disk or \
-                        CD, and boot it. cloud-init reads it once, on first \
-                        boot.
+                        **On a hypervisor** — Proxmox, libvirt, VMware — create \
+                        a machine from your distribution's cloud image, attach \
+                        this ISO, and boot it. cloud-init reads it once, on \
+                        first boot.
+
+                        **On a cloud provider** — DigitalOcean, Hetzner, Linode \
+                        — there is usually nowhere to attach an ISO. Paste the \
+                        contents of the `user-data.yml` file written beside it \
+                        into the provider's user data box when you create the \
+                        machine. DigitalOcean calls it "User data", under \
+                        Advanced options.
                         """)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                        .lineLimit(8)
+                        .lineLimit(14)
                     }
                 }
                 .padding(20)

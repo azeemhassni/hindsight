@@ -50,12 +50,27 @@ extension AgentCore {
             )
             let seed = ReplicaSeed.build(from: source)
 
-            let destination = URL(fileURLWithPath: destinationDirectory)
-                .appendingPathComponent("\(server.name) replica seed.iso")
+            let folder = URL(fileURLWithPath: destinationDirectory)
+            let destination = folder.appendingPathComponent("\(server.name) replica seed.iso")
             _ = try await SeedISO.write(
                 userData: seed.userData,
                 metaData: seed.metaData,
                 to: destination
+            )
+
+            // The same thing unwrapped. An ISO is what a hypervisor wants —
+            // Proxmox, libvirt, VMware — but a cloud provider usually takes
+            // cloud-config pasted into a "user data" box when the machine is
+            // created, and DigitalOcean cannot attach an ISO to a droplet at
+            // all. Writing both costs a few kilobytes and saves having to
+            // mount the image to get at what is inside it.
+            try? Data(seed.userData.utf8).write(
+                to: folder.appendingPathComponent("\(server.name) user-data.yml"),
+                options: .atomic
+            )
+            try? Data(seed.notes.utf8).write(
+                to: folder.appendingPathComponent("\(server.name) replica notes.md"),
+                options: .atomic
             )
             return .replicaSeed(
                 path: destination.path,
