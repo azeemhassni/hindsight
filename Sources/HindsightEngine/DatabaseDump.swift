@@ -72,16 +72,16 @@ public enum DatabaseDumpCommand {
             // pipe, gives the bare value.
             return """
             \(redisAuthPreamble)
-            previous=$(redis-cli LASTSAVE | tr -dc '0-9')
+            previous=$("$redis_cli" LASTSAVE | tr -dc '0-9')
             if [ -z "$previous" ]; then
-              echo "redis-cli could not read LASTSAVE:" 1>&2
-              redis-cli PING 1>&2
+              echo "$redis_cli could not read LASTSAVE:" 1>&2
+              "$redis_cli" PING 1>&2
               exit 74
             fi
-            redis-cli BGSAVE > /dev/null
+            "$redis_cli" BGSAVE > /dev/null
             current=""
             for attempt in $(seq 1 \(Self.redisSaveTimeoutSeconds)); do
-              current=$(redis-cli LASTSAVE | tr -dc '0-9')
+              current=$("$redis_cli" LASTSAVE | tr -dc '0-9')
               [ -n "$current" ] && [ "$current" != "$previous" ] && break
               sleep 1
             done
@@ -89,8 +89,8 @@ public enum DatabaseDumpCommand {
               echo "BGSAVE did not finish within \(Self.redisSaveTimeoutSeconds)s" 1>&2
               exit 75
             fi
-            directory=$(redis-cli CONFIG GET dir | tail -1)
-            filename=$(redis-cli CONFIG GET dbfilename | tail -1)
+            directory=$("$redis_cli" CONFIG GET dir | tail -1)
+            filename=$("$redis_cli" CONFIG GET dbfilename | tail -1)
             if [ -z "$directory" ] || [ -z "$filename" ]; then
               echo "could not read the RDB location from CONFIG GET" 1>&2
               exit 76
@@ -117,6 +117,24 @@ public enum DatabaseDumpCommand {
       REDISCLI_AUTH="$REDIS_PASSWORD"
     fi
     if [ -n "${REDISCLI_AUTH:-}" ]; then export REDISCLI_AUTH; else unset REDISCLI_AUTH; fi
+    \(redisClientPreamble)
+    """
+
+    /// Valkey and KeyDB are Redis forks that Hindsight already recognises by
+    /// image name, and neither ships a binary called `redis-cli` — one
+    /// container on a real server failed with `sh: redis-cli: not found`. The
+    /// client is whichever of the three is actually there.
+    static let redisClientPreamble = """
+    for candidate in redis-cli valkey-cli keydb-cli; do
+      if command -v "$candidate" > /dev/null 2>&1; then
+        redis_cli="$candidate"
+        break
+      fi
+    done
+    if [ -z "${redis_cli:-}" ]; then
+      echo "none of redis-cli, valkey-cli or keydb-cli is in this container" 1>&2
+      exit 78
+    fi
     """
 
     /// How long to wait for a `BGSAVE` to finish. Ten minutes was the old

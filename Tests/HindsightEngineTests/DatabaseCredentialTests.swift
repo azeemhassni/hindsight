@@ -113,10 +113,31 @@ struct DatabaseCredentialTests {
         )
         let script = try DatabaseDumpCommand.engineCommand(for: target)
 
-        #expect(script.contains("redis-cli CONFIG GET dir"))
+        #expect(script.contains("\"$redis_cli\" CONFIG GET dir"))
         #expect(!script.contains("--no-raw"))
         // And it checks the file is really there before streaming it.
         #expect(script.contains("! -s \"$directory/$filename\""))
+    }
+
+    /// One container on a real server answered `sh: redis-cli: not found`.
+    /// Valkey and KeyDB are Redis forks Hindsight already matches by image
+    /// name, so the client is whichever of the three the container has.
+    @Test("uses whichever Redis client the container actually has")
+    func findsTheRedisClient() throws {
+        let target = DatabaseTarget(
+            engine: .redis,
+            location: .container(name: "cache", image: "valkey/valkey:8")
+        )
+        let script = try DatabaseDumpCommand.engineCommand(for: target)
+
+        #expect(script.contains("for candidate in redis-cli valkey-cli keydb-cli"))
+        // Every call goes through what was found, not a hardcoded name.
+        #expect(script.contains("\"$redis_cli\" LASTSAVE"))
+        #expect(script.contains("\"$redis_cli\" BGSAVE"))
+        #expect(!script.contains("\nredis-cli "))
+        // And says so plainly when there is none, rather than letting the
+        // shell's "not found" arrive as a restic complaint about a file.
+        #expect(script.contains("exit 78"))
     }
 
     /// `docker exec` begins with the container's environment, so a password

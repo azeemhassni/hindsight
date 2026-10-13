@@ -610,10 +610,12 @@ public actor AgentCore {
         )
 
         try? catalog.append("starting the backup engine", to: job.id)
+        // The outcome is the only place the counts live; without keeping it
+        // the job history shows a run with no size, which is what it did. It
+        // outlives the run itself because the reconciliation below needs to
+        // know which dumps failed.
+        var outcome: BackupOutcome?
         do {
-            // The outcome is the only place the counts live; without keeping it
-            // the job history shows a run with no size, which is what it did.
-            var outcome: BackupOutcome?
             for try await event in engine.run(plan) {
                 if case let .finished(result) = event { outcome = result }
                 await apply(event, to: job, server: server)
@@ -639,6 +641,30 @@ public actor AgentCore {
         // one that says it could not be checked.
         do {
             let local = try await localClient(for: server, repository: repository)
+
+            // A dump that failed may still have left a snapshot: restic writes
+            // one even when it could not read its source. Removing it here,
+            // before the catalog is reconciled against the repository, is what
+            // keeps an empty snapshot from being filed as a backup.
+            let abandoned = (outcome?.databaseDumps ?? [])
+                .filter { !$0.succeeded }
+                .compactMap(\.snapshotID)
+            if !abandoned.isEmpty {
+                do {
+                    try await local.forget(snapshotIDs: abandoned)
+                    try? catalog.append(
+                        "removed \(abandoned.count) empty snapshot(s) left by a failed dump",
+                        to: job.id
+                    )
+                } catch {
+                    try? catalog.append(
+                        "could not remove a snapshot left by a failed dump: \(error)",
+                        level: .warning,
+                        to: job.id
+                    )
+                }
+            }
+
             let listed = try await local.snapshots()
             try catalog.record(listed.map { $0.toSnapshot() }, inRepository: repository.id)
             let removed = try catalog.retainOnly(

@@ -254,6 +254,26 @@ public struct ResticClient: Sendable {
 
     /// Applies a retention policy. Always available as a dry run, because the
     /// UI must be able to show exactly what a policy change would delete.
+    /// Removes named snapshots.
+    ///
+    /// For a dump that failed after restic had already written a snapshot:
+    /// restic creates one even when it could not read its source, so an empty
+    /// snapshot is left behind looking exactly like a backup. It has to go
+    /// from the repository rather than only from the catalog, because the
+    /// catalog is reconciled against the repository after every run and would
+    /// faithfully bring it back.
+    ///
+    /// Local only, by necessity: the append-only server a backup pushes
+    /// through cannot delete, which is the point of it.
+    public func forget(snapshotIDs: [SnapshotID], timeout: Duration? = nil) async throws {
+        guard !snapshotIDs.isEmpty else { return }
+        try await run(
+            ["forget"] + snapshotIDs.map(\.value),
+            operation: "forget",
+            timeout: timeout
+        )
+    }
+
     public func forget(
         keepWithinHours: Int,
         keepDaily: Int,
