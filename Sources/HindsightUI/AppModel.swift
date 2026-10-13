@@ -247,6 +247,20 @@ public final class AppModel {
         }
     }
 
+    /// Records a machine purely as somewhere to restore onto.
+    public func addRestoreTarget(_ draft: AddServerDraft) async -> String? {
+        guard let send else { return nil }
+        switch await send(.addRestoreTarget(draft)) {
+        case let .serverAdded(serverID):
+            await refresh()
+            return serverID
+        case let .failed(message):
+            lastError = message
+            return nil
+        default: return nil
+        }
+    }
+
     /// Stops or restarts scheduled backups for one server.
     @discardableResult
     public func setPaused(_ paused: Bool, serverID: String) async -> Bool {

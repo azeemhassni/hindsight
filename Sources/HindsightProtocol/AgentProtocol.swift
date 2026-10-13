@@ -49,6 +49,9 @@ public enum AgentRequest: Codable, Sendable, Hashable {
     case trustHostKey(host: String, port: Int, keyType: String, base64Key: String)
     case probeServer(AddServerDraft)
     case addServer(AddServerDraft)
+    /// Records a machine purely as somewhere to restore onto: the same host
+    /// key confirmation, but no repository, password or schedule.
+    case addRestoreTarget(AddServerDraft)
     /// The jobs and their log lines, for the activity view.
     case jobHistory(serverID: String, limit: Int)
     case jobLog(jobID: String)
@@ -479,6 +482,10 @@ public struct ServerStatus: Codable, Sendable, Hashable {
     public var lastCheckPassed: Bool?
     /// When scheduled backups were paused, or nil while they run.
     public var pausedAt: Date?
+    /// True for a machine recorded only as somewhere to restore onto. It has
+    /// no repository, so it is not backed up and must not be reported as a
+    /// server that has been neglected.
+    public var isRestoreTargetOnly: Bool = false
     /// Why the health is what it is, in words. "Needs attention" on its own
     /// tells someone there is a problem and nothing about what it is.
     public var healthReason: String?
@@ -493,7 +500,8 @@ public struct ServerStatus: Codable, Sendable, Hashable {
         scheduleExplanation: String,
         lastCheckPassed: Bool?,
         pausedAt: Date? = nil,
-        healthReason: String? = nil
+        healthReason: String? = nil,
+        isRestoreTargetOnly: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -505,6 +513,7 @@ public struct ServerStatus: Codable, Sendable, Hashable {
         self.lastCheckPassed = lastCheckPassed
         self.pausedAt = pausedAt
         self.healthReason = healthReason
+        self.isRestoreTargetOnly = isRestoreTargetOnly
     }
 
     public var isPaused: Bool { pausedAt != nil }

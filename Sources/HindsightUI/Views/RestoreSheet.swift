@@ -14,19 +14,26 @@ public struct RestoreSheetView: View {
     /// Other machines this snapshot could be written to. Empty for the
     /// ordinary case, which keeps the sheet as it was.
     let otherServers: [RestoreDestination]
+    /// Builds the flow for adding a machine from its connection details.
+    /// Absent in previews and tests, where the option is simply not offered.
+    let makeTargetFlow: (() -> RestoreTargetFlow)?
     let onClose: () -> Void
+
+    @State private var addingTarget: RestoreTargetFlow?
 
     public init(
         flow: RestoreFlow,
         snapshots: [Snapshot],
         availabilityExplanations: [(mode: String, title: String, available: Bool, explanation: String)],
         otherServers: [RestoreDestination] = [],
+        makeTargetFlow: (() -> RestoreTargetFlow)? = nil,
         onClose: @escaping () -> Void
     ) {
         self.flow = flow
         self.snapshots = snapshots
         self.availabilityExplanations = availabilityExplanations
         self.otherServers = otherServers
+        self.makeTargetFlow = makeTargetFlow
         self.onClose = onClose
     }
 
@@ -43,6 +50,20 @@ public struct RestoreSheetView: View {
             footer
         }
         .frame(minWidth: 620, minHeight: 480)
+        .sheet(item: $addingTarget) { target in
+            RestoreTargetSheet(
+                flow: target,
+                onAdded: { serverID, hostname in
+                    flow.targetServerID = serverID
+                    flow.targetHostname = hostname
+                    // The hostname typed before confirmed a different machine.
+                    flow.typedHostname = ""
+                    flow.preview = nil
+                    addingTarget = nil
+                },
+                onClose: { addingTarget = nil }
+            )
+        }
     }
 
     private var header: some View {
@@ -63,7 +84,7 @@ public struct RestoreSheetView: View {
         case .choosing:
             VStack(alignment: .leading, spacing: 20) {
                 snapshotPicker
-                if !otherServers.isEmpty { targetPicker }
+                if !otherServers.isEmpty || makeTargetFlow != nil { targetPicker }
                 modeList
             }
         case .preparing, .running:
@@ -141,6 +162,13 @@ public struct RestoreSheetView: View {
             }
             .labelsHidden()
             .help("Choose the machine these files are written to")
+            if let makeTargetFlow {
+                Button("Another machine…", systemImage: "plus.circle") {
+                    addingTarget = makeTargetFlow()
+                }
+                .buttonStyle(.link)
+                .help("Restore onto a machine by giving its connection details")
+            }
             if flow.targetServerID != nil {
                 Label(
                     """

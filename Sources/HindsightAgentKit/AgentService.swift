@@ -276,6 +276,14 @@ public actor AgentCore {
                 return .failed(message: "\(error)")
             }
 
+        case let .addRestoreTarget(draft):
+            do {
+                let id = try await addRestoreTarget(draft)
+                return .serverAdded(serverID: id.value)
+            } catch {
+                return .failed(message: "\(error)")
+            }
+
         case let .addServer(draft):
             do {
                 let id = try await addServer(draft)
@@ -368,26 +376,33 @@ public actor AgentCore {
             let lastCheck = repository.flatMap { try? catalog.latestCheck(forRepository: $0.id) }
 
             let recent = (try? catalog.jobs(forServer: server.id, limit: 20)) ?? []
+            // A machine recorded only to restore onto keeps no backups, so
+            // every question about when it was last backed up has no answer
+            // rather than a bad one.
+            let targetOnly = repository == nil
             return ServerStatus(
                 id: server.id.value,
                 name: server.name,
                 hostname: server.endpoint.host,
-                health: Self.health(
+                health: targetOnly ? .unknown : Self.health(
                     lastBackupAt: lastBackup,
                     lastCheckPassed: lastCheck.map { $0.outcome == .passed }
                 ),
                 lastBackupAt: lastBackup,
                 nextBackupAt: server.isPaused ? nil : schedule?.decision.nextFireDate,
-                scheduleExplanation: server.isPaused
-                    ? "Paused. Scheduled backups will not run until you resume them."
-                    : (schedule?.decision.explanation ?? "No schedule."),
+                scheduleExplanation: targetOnly
+                    ? "A machine to restore onto. Nothing here is backed up."
+                    : (server.isPaused
+                        ? "Paused. Scheduled backups will not run until you resume them."
+                        : (schedule?.decision.explanation ?? "No schedule.")),
                 lastCheckPassed: lastCheck.map { $0.outcome == .passed },
                 pausedAt: server.pausedAt,
-                healthReason: Self.healthReason(
+                healthReason: targetOnly ? nil : Self.healthReason(
                     lastBackupAt: lastBackup,
                     lastCheckPassed: lastCheck.map { $0.outcome == .passed },
                     recentJobs: recent
-                )
+                ),
+                isRestoreTargetOnly: targetOnly
             )
         }
 

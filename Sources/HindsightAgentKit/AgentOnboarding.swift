@@ -65,7 +65,12 @@ extension AgentCore {
         )
     }
 
-    func addServer(_ draft: AddServerDraft) async throws -> ServerID {
+    /// Records the connection, and nothing else.
+    ///
+    /// Shared by onboarding and by adding a machine purely to restore onto:
+    /// both need a managed ssh configuration and a host key that has been
+    /// confirmed, and only one of them needs somewhere to keep backups.
+    private func saveConnection(_ draft: AddServerDraft) throws -> (ServerID, SSHPaths) {
         let id = try uniqueIdentifier(for: draft.name.isEmpty ? draft.host : draft.name)
         let paths = sshPaths()
 
@@ -77,6 +82,25 @@ extension AgentCore {
             privilege: draft.user == "root" ? .root : .sudo
         )
         try catalog.save(server)
+        return (id, paths)
+    }
+
+    /// Adds a machine to restore onto, without making it something that gets
+    /// backed up.
+    ///
+    /// No repository, no password and no schedule: this is a destination, and
+    /// giving it the apparatus of a backup source would put a server in the
+    /// list that nothing ever writes to and that reports itself as neglected
+    /// for ever. It still goes through the same host key confirmation, because
+    /// a restore is the last operation that should reach an unverified machine.
+    func addRestoreTarget(_ draft: AddServerDraft) async throws -> ServerID {
+        let (id, paths) = try saveConnection(draft)
+        try SSHConfiguration(paths: paths).write(for: existingDestinations())
+        return id
+    }
+
+    func addServer(_ draft: AddServerDraft) async throws -> ServerID {
+        let (id, paths) = try saveConnection(draft)
 
         let root = draft.repositoryPath.map { URL(fileURLWithPath: $0) }
             ?? configuration.repositoryRoot

@@ -132,6 +132,7 @@ public struct RootView: View {
                 snapshots: snapshots(flow.serverID),
                 availabilityExplanations: Self.modeExplanations,
                 otherServers: restoreDestinations(excluding: flow.serverID),
+                makeTargetFlow: { RestoreTargetFlow(model: model) },
                 onClose: { restoreFlow = nil }
             )
         }
