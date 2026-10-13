@@ -85,7 +85,9 @@ public struct RestoreSheetView: View {
             VStack(alignment: .leading, spacing: 20) {
                 snapshotPicker
                 if !otherServers.isEmpty || makeTargetFlow != nil { targetPicker }
-                modeList
+                // A dump is loaded, not written: the modes are about replacing
+                // files and mean nothing here.
+                if flow.isDatabaseDump { databasePicker } else { modeList }
             }
         case .preparing, .running:
             ProgressView().controlSize(.large)
@@ -192,7 +194,7 @@ public struct RestoreSheetView: View {
             Text("Snapshot").font(.headline)
             ForEach(snapshots.sorted { $0.time > $1.time }.prefix(30), id: \.id.value) { snapshot in
                 Button {
-                    flow.snapshotID = snapshot.id.value
+                    choose(snapshot)
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: flow.snapshotID == snapshot.id.value
@@ -217,8 +219,68 @@ public struct RestoreSheetView: View {
                     )
                 }
                 .buttonStyle(.plain)
-                .help("Restore the server as it was at \(formatted(snapshot.time))")
+                .help(snapshot.kind == .databaseDump
+                    ? "Load this dump back into a database"
+                    : "Restore the server as it was at \(formatted(snapshot.time))")
             }
+        }
+    }
+
+    /// Choosing a snapshot decides what kind of restore this is: a dump is
+    /// loaded into a database, and files are written onto the disk. They are
+    /// different enough that the sheet should not look the same for both.
+    private func choose(_ snapshot: Snapshot) {
+        flow.snapshotID = snapshot.id.value
+        flow.preview = nil
+        flow.isDatabaseDump = snapshot.kind == .databaseDump
+        flow.paths = snapshot.kind == .databaseDump ? snapshot.paths : []
+        flow.databaseName = snapshot.tags
+            .first { $0.hasPrefix("dbname:") }
+            .map { String($0.dropFirst("dbname:".count)) }
+        flow.loadIntoDatabase = nil
+        if flow.isDatabaseDump {
+            Task { await flow.loadDatabaseChoices() }
+        }
+    }
+
+    /// Which database a dump is loaded into. Nothing is assumed: the container
+    /// on a replacement machine rarely has the same name as the original.
+    private var databasePicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Load into").font(.headline)
+            if flow.availableDatabases.isEmpty {
+                Text("Looking for databases on \(flow.hostnameToConfirm)…")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else {
+                Picker("Load into", selection: Binding(
+                    get: { flow.loadIntoDatabase ?? "" },
+                    set: { flow.loadIntoDatabase = $0.isEmpty ? nil : $0 }
+                )) {
+                    Text("Choose a database").tag("")
+                    ForEach(flow.availableDatabases) { database in
+                        Text(database.canLoadWhileRunning
+                            ? database.displayName
+                            : "\(database.displayName) — cannot be loaded while running")
+                            .tag(database.id)
+                    }
+                }
+                .labelsHidden()
+                .help("The database this dump is loaded into")
+            }
+            Label(
+                """
+                This replaces the contents of that database with the dump. \
+                There is no safety snapshot to undo it with — what it replaces \
+                is inside a database, not on the filesystem — so the previous \
+                dump in this repository is the way back.
+                """,
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .font(.callout)
+            .foregroundStyle(.orange)
+            .fixedSize(horizontal: false, vertical: true)
+            .lineLimit(8)
         }
     }
 
@@ -313,6 +375,15 @@ public struct RestoreSheetView: View {
 
     private var confirmation: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if flow.isDatabaseDump, let into = flow.availableDatabases
+                .first(where: { $0.id == flow.loadIntoDatabase }) {
+                Text("""
+                This replaces the contents of **\(into.displayName)** on \
+                \(flow.hostnameToConfirm) with this dump.
+                """)
+                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(4)
+            }
             Text("Type **\(flow.hostnameToConfirm)** to confirm.")
             TextField("Hostname", text: $flow.typedHostname)
                 .textFieldStyle(.roundedBorder)
@@ -324,14 +395,20 @@ public struct RestoreSheetView: View {
     /// Tooltips that say what is missing while a button is disabled, which is
     /// when someone is most likely to hover over it.
     private var reviewHelp: String {
-        flow.canReview
-            ? "Take a snapshot of what is there now, then show exactly what would change"
-            : "Choose a snapshot first"
+        guard flow.canReview else { return "Choose a snapshot first" }
+        if flow.isDatabaseDump {
+            return flow.loadIntoDatabase == nil
+                ? "Choose which database this dump should be loaded into"
+                : "Go on to the confirmation step; nothing is loaded yet"
+        }
+        return "Take a snapshot of what is there now, then show exactly what would change"
     }
 
     private var restoreHelp: String {
         flow.canConfirm
-            ? "Write these files back to \(flow.hostnameToConfirm); the safety snapshot can undo it"
+            ? (flow.isDatabaseDump
+                ? "Load this dump into the chosen database on \(flow.hostnameToConfirm)"
+                : "Write these files back to \(flow.hostnameToConfirm); the safety snapshot can undo it")
             : "Type the server's hostname to confirm"
     }
 
@@ -342,10 +419,12 @@ public struct RestoreSheetView: View {
             Spacer()
             switch flow.stage {
             case .choosing:
-                Button("Review changes") { Task { await flow.prepare() } }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!flow.canReview)
-                    .help(reviewHelp)
+                Button(flow.isDatabaseDump ? "Continue" : "Review changes") {
+                    Task { await flow.prepare() }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!flow.canReview || (flow.isDatabaseDump && flow.loadIntoDatabase == nil))
+                .help(reviewHelp)
             case .reviewing:
                 Button("Continue") { flow.proceedToConfirmation() }
                     .buttonStyle(.borderedProminent)

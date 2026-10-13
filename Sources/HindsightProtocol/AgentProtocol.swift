@@ -62,6 +62,8 @@ public enum AgentRequest: Codable, Sendable, Hashable {
     /// Every entry in a snapshot whose name matches, found by reading the
     /// whole snapshot once. Capped, and the reply says whether it was.
     case searchSnapshot(serverID: String, snapshotID: String, term: String, limit: Int)
+    /// The databases on a server, so a dump can be pointed at one of them.
+    case discoverDatabases(serverID: String)
     case extractFile(serverID: String, snapshotID: String, path: String)
     /// Assembled by the agent, saved by the app: the passwords are the agent's
     /// to read, and where the file goes is a question for a person.
@@ -97,6 +99,24 @@ public struct SnapshotNodeReport: Codable, Sendable, Hashable {
         self.sizeBytes = sizeBytes
         self.modifiedAt = modifiedAt
         self.permissions = permissions
+    }
+}
+
+/// A database on a server, as somewhere a dump could be loaded.
+public struct DatabaseTargetReport: Codable, Sendable, Hashable, Identifiable {
+    /// `DatabaseTarget.identifier`.
+    public var id: String
+    public var engine: String
+    public var displayName: String
+    /// False when a dump cannot be streamed into it while it is running,
+    /// which is true of Redis.
+    public var canLoadWhileRunning: Bool
+
+    public init(id: String, engine: String, displayName: String, canLoadWhileRunning: Bool) {
+        self.id = id
+        self.engine = engine
+        self.displayName = displayName
+        self.canLoadWhileRunning = canLoadWhileRunning
     }
 }
 
@@ -333,6 +353,11 @@ public struct RestoreCommand: Codable, Sendable, Hashable {
     /// a restore cannot be started by anything that was not in front of the
     /// Mac. A preview needs none: it changes nothing on the server.
     public var authorization: String?
+    /// For a database dump: which database on the target to load it into,
+    /// as a `DatabaseTarget.identifier`. Absent for a filesystem restore.
+    public var loadIntoDatabase: String?
+    /// The name of the database inside that dump, from its `dbname:` tag.
+    public var databaseName: String?
 
     /// The machine this restore changes, which is the one permission has to be
     /// granted for. Writing to a server is what needs authorising; reading a
@@ -348,7 +373,9 @@ public struct RestoreCommand: Codable, Sendable, Hashable {
         mode: String,
         typedHostname: String,
         optedInExclusions: [String] = [],
-        authorization: String? = nil
+        authorization: String? = nil,
+        loadIntoDatabase: String? = nil,
+        databaseName: String? = nil
     ) {
         self.serverID = serverID
         self.targetServerID = targetServerID
@@ -359,6 +386,8 @@ public struct RestoreCommand: Codable, Sendable, Hashable {
         self.typedHostname = typedHostname
         self.optedInExclusions = optedInExclusions
         self.authorization = authorization
+        self.loadIntoDatabase = loadIntoDatabase
+        self.databaseName = databaseName
     }
 }
 
@@ -431,6 +460,7 @@ public enum AgentResponse: Codable, Sendable, Hashable {
     case settings(ServerSettingsReport)
     case snapshotNodes([SnapshotNodeReport])
     case snapshotMatches(nodes: [SnapshotNodeReport], truncated: Bool)
+    case databases([DatabaseTargetReport])
     case extractedFile(path: String)
     case kit(RecoveryKitReport)
     case replicaSeed(path: String, notes: String, warnings: [String])

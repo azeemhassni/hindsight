@@ -34,6 +34,14 @@ public final class RestoreFlow: Identifiable {
     /// belong to this machine, because this is the one that changes.
     public var targetServerID: String?
     public var targetHostname: String?
+    /// Set when the chosen snapshot holds a database dump rather than files.
+    /// A dump is loaded into a database; it is not written onto the disk.
+    public var isDatabaseDump = false
+    /// The database inside the dump, from its `dbname:` tag.
+    public var databaseName: String?
+    /// Which database on the target to load it into.
+    public var loadIntoDatabase: String?
+    public var availableDatabases: [DatabaseTargetReport] = []
     public var snapshotID: String?
     public var paths: [String] = []
     public var targetPath: String?
@@ -67,7 +75,9 @@ public final class RestoreFlow: Identifiable {
             targetPath: targetPath,
             mode: mode,
             typedHostname: typedHostname,
-            optedInExclusions: Array(optedInExclusions).sorted()
+            optedInExclusions: Array(optedInExclusions).sorted(),
+            loadIntoDatabase: isDatabaseDump ? loadIntoDatabase : nil,
+            databaseName: isDatabaseDump ? databaseName : nil
         )
     }
 
@@ -82,14 +92,39 @@ public final class RestoreFlow: Identifiable {
 
     public var canReview: Bool { snapshotID != nil }
 
+    /// Loads the databases a dump could go into, once the target is known.
+    public func loadDatabaseChoices() async {
+        guard isDatabaseDump else { return }
+        availableDatabases = await model.databases(onServer: writtenServerID)
+        // The obvious one, when there is only one it could be.
+        let loadable = availableDatabases.filter(\.canLoadWhileRunning)
+        if loadIntoDatabase == nil, loadable.count == 1 {
+            loadIntoDatabase = loadable[0].id
+        }
+    }
+
     /// The confirm button stays disabled until the hostname matches exactly.
     public var canConfirm: Bool {
-        preview != nil && typedHostname.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A dump needs somewhere to go, and takes no preview: what it would
+        // replace is inside a database, which a filesystem diff cannot show.
+        if isDatabaseDump {
+            return loadIntoDatabase != nil && typedHostname
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare(hostnameToConfirm) == .orderedSame
+        }
+        return preview != nil && typedHostname.trimmingCharacters(in: .whitespacesAndNewlines)
             .caseInsensitiveCompare(hostnameToConfirm) == .orderedSame
     }
 
     public func prepare() async {
         guard var command else { return }
+        // A dump replaces the contents of a database, which a filesystem diff
+        // cannot describe. There is nothing honest to preview, so it goes
+        // straight to the confirmation that names what it will replace.
+        if isDatabaseDump {
+            stage = .confirming
+            return
+        }
         // The preview is taken under the same confirmation the restore will
         // need, so a preview cannot be used to probe a server the person has
         // not identified.
@@ -105,7 +140,7 @@ public final class RestoreFlow: Identifiable {
     }
 
     public func proceedToConfirmation() {
-        guard preview != nil else { return }
+        guard preview != nil || isDatabaseDump else { return }
         stage = .confirming
     }
 

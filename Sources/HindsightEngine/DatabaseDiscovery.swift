@@ -76,6 +76,11 @@ public struct DatabaseTarget: Sendable, Hashable, Codable {
         }
     }
 
+    public var containerName: String? {
+        guard case let .container(name, _) = location else { return nil }
+        return name
+    }
+
     public var identifier: String {
         switch location {
         case let .container(name, _): "\(engine.rawValue)-\(name)"

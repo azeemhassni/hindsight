@@ -232,6 +232,8 @@ extension AgentCore {
         let ends = try restoreEnds(for: command)
         let plan = try restorePlan(from: command, server: ends.target)
         let paths = command.paths.isEmpty ? ["/"] : command.paths
+        // A dump snapshot holds one file, named when it was taken.
+        let dumpPath = command.paths.first ?? "/"
         let binaryDirectory = configuration.binaryDirectory
         let catalog = self.catalog
         let jobID = job.id
@@ -259,6 +261,43 @@ extension AgentCore {
             )
             try executor.authorize(facts: facts, destination: destination)
 
+            // A dump is loaded into a database, not written onto the disk.
+            // Restoring one as files put a .dump at the root of the server and
+            // left the database exactly as it was, which is a confusing way to
+            // be told nothing happened.
+            if let loadInto = command.loadIntoDatabase {
+                let targets = try await DatabaseDiscovery(client: client)
+                    .discover(on: destination, facts: facts)
+                guard let database = targets.first(where: { $0.identifier == loadInto }) else {
+                    throw DatabaseLoadError.refused("""
+                    \(ends.target.name) has no database called \(loadInto) any \
+                    more. Databases found there: \
+                    \(targets.map(\.displayName).joined(separator: ", ")).
+                    """)
+                }
+                let password = try? await DatabaseCredentialDiscovery(client: client)
+                    .credential(for: database, on: destination)
+                try catalog.append(
+                    "Loading \(dumpPath) into \(database.displayName).",
+                    to: jobID
+                )
+                try await DatabaseLoadRunner.loadDatabaseDump(
+                    client: client,
+                    snapshotID: SnapshotID(unchecked: command.snapshotID),
+                    dumpPath: dumpPath,
+                    into: database,
+                    database: command.databaseName,
+                    session: session,
+                    hasBash: facts.hasBash,
+                    databasePassword: password
+                )
+                try catalog.append("Loaded \(database.displayName).", to: jobID)
+                // No safety snapshot: what it would replace is inside a
+                // database, which a filesystem snapshot cannot capture
+                // usefully. The previous dump in the repository is the undo.
+                return SnapshotID(unchecked: "")
+            }
+
             // The safety snapshot is taken before anything is written, so the
             // restore can be undone even if it turns out to be the wrong one.
             let preview = try await executor.prepare(
@@ -284,11 +323,14 @@ extension AgentCore {
             return preview.safetySnapshotID
         }
 
-        notifier.restoreFinished(server: server.name, succeeded: true)
+        notifier.restoreFinished(server: ends.target.name, succeeded: true)
         emit(.restoreFinished(
-            serverID: server.id.value,
+            serverID: ends.target.id.value,
             succeeded: true,
-            safetySnapshotID: safetySnapshotID.value,
+            // Empty for a dump: there is no safety snapshot to undo from,
+            // because what it replaced was inside a database rather than on
+            // the filesystem. The previous dump in the repository is the undo.
+            safetySnapshotID: safetySnapshotID.value.isEmpty ? nil : safetySnapshotID.value,
             message: nil
         ))
     }

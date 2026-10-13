@@ -286,6 +286,20 @@ public final class AppModel {
         }
     }
 
+    /// The databases on a server, so a dump can be pointed at one.
+    public func databases(onServer serverID: String) async -> [DatabaseTargetReport] {
+        guard let send else { return [] }
+        switch await send(.discoverDatabases(serverID: serverID)) {
+        case let .databases(found):
+            return found
+        case let .failed(message):
+            lastError = message
+            return []
+        default:
+            return []
+        }
+    }
+
     /// Stops or restarts scheduled backups for one server.
     @discardableResult
     public func setPaused(_ paused: Bool, serverID: String) async -> Bool {

@@ -137,3 +137,109 @@ struct RestoreTargetFlowTests {
         }
     }
 }
+
+/// A dump and a filesystem snapshot are different restores, and the sheet has
+/// to treat them differently: one is loaded into a database, the other is
+/// written onto a disk.
+@MainActor
+@Suite("Restoring a dump")
+struct DumpRestoreFlowTests {
+    private func makeFlow(databases: [DatabaseTargetReport]) -> RestoreFlow {
+        let model = AppModel()
+        model.send = { request in
+            if case .discoverDatabases = request { return .databases(databases) }
+            return .status(AgentStatus(version: "test", servers: [], runningJobs: []))
+        }
+        let flow = RestoreFlow(model: model, serverID: "web-01", serverHostname: "web-01.example")
+        flow.snapshotID = "aa11"
+        flow.isDatabaseDump = true
+        flow.paths = ["/postgres-umami.dump"]
+        flow.databaseName = "umami"
+        return flow
+    }
+
+    private let postgres = DatabaseTargetReport(
+        id: "postgres-app-db",
+        engine: "postgres",
+        displayName: "postgres in app-db",
+        canLoadWhileRunning: true
+    )
+    private let redis = DatabaseTargetReport(
+        id: "redis-cache",
+        engine: "redis",
+        displayName: "redis in cache",
+        canLoadWhileRunning: false
+    )
+
+    @Test("a dump cannot be confirmed until a database is chosen")
+    func needsADatabase() {
+        let flow = makeFlow(databases: [postgres])
+        flow.typedHostname = "web-01.example"
+        #expect(!flow.canConfirm, "nowhere to load it yet")
+
+        flow.loadIntoDatabase = postgres.id
+        #expect(flow.canConfirm)
+    }
+
+    /// A filesystem restore needs a preview first; a dump has nothing to
+    /// preview, because what it replaces is inside a database.
+    @Test("a dump needs no preview, and a filesystem restore still does")
+    func previewOnlyForFiles() {
+        let dump = makeFlow(databases: [postgres])
+        dump.loadIntoDatabase = postgres.id
+        dump.typedHostname = "web-01.example"
+        #expect(dump.preview == nil)
+        #expect(dump.canConfirm)
+
+        let files = makeFlow(databases: [])
+        files.isDatabaseDump = false
+        files.paths = []
+        files.typedHostname = "web-01.example"
+        #expect(!files.canConfirm, "a filesystem restore is confirmed on its preview")
+    }
+
+    @Test("the command carries where the dump goes, and only for a dump")
+    func commandCarriesTheDestination() throws {
+        let flow = makeFlow(databases: [postgres])
+        flow.loadIntoDatabase = postgres.id
+        let command = try #require(flow.command)
+        #expect(command.loadIntoDatabase == "postgres-app-db")
+        #expect(command.databaseName == "umami")
+
+        // The same flow for files carries neither, so a filesystem restore
+        // cannot be turned into a database write by a stale field.
+        flow.isDatabaseDump = false
+        let fileCommand = try #require(flow.command)
+        #expect(fileCommand.loadIntoDatabase == nil)
+        #expect(fileCommand.databaseName == nil)
+    }
+
+    @Test("chooses the only loadable database, and never an unloadable one")
+    func choosesTheObviousDatabase() async {
+        let flow = makeFlow(databases: [postgres, redis])
+        await flow.loadDatabaseChoices()
+        // Two were found, but only one can be loaded into while running.
+        #expect(flow.availableDatabases.count == 2)
+        #expect(flow.loadIntoDatabase == postgres.id)
+
+        // With two loadable ones it must not guess.
+        let ambiguous = makeFlow(databases: [
+            postgres,
+            DatabaseTargetReport(
+                id: "postgres-other",
+                engine: "postgres",
+                displayName: "postgres in other",
+                canLoadWhileRunning: true
+            ),
+        ])
+        await ambiguous.loadDatabaseChoices()
+        #expect(ambiguous.loadIntoDatabase == nil)
+    }
+
+    @Test("a Redis dump alone leaves nothing chosen")
+    func redisIsNotChosen() async {
+        let flow = makeFlow(databases: [redis])
+        await flow.loadDatabaseChoices()
+        #expect(flow.loadIntoDatabase == nil, "Redis cannot be loaded while running")
+    }
+}

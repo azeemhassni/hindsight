@@ -692,3 +692,36 @@ what cannot be restored (kernel interfaces) and what belongs to a container
 image rather than the host. It costs several gigabytes a server and a much
 longer first backup, which is why it is a choice and not the default. It takes
 effect on the next backup; snapshots already taken hold what they held.
+
+## A dump restore now restores the database
+
+Restoring a database dump snapshot wrote a `.dump` file to the root of the
+server and left the database exactly as it was. The file arrived intact and
+nothing else happened, which is a confusing way to be told that nothing
+happened. `RestoreScope.databaseDump` existed in the type and was never
+constructed: every restore was built as `.fullServer` or `.paths`.
+
+A dump is now streamed out of the repository and piped straight into the
+database's own client on the server — `pg_restore --clean --if-exists`,
+`mysql`, `mariadb`, `mongorestore --drop` — which is the backup run backwards.
+Nothing touches the server's disk on the way, because a dump left lying on a
+production server is a copy of the database somebody has to remember to delete.
+`--clean` and `--drop` are deliberate: a restore means "make it look like the
+snapshot", and loading on top of existing rows leaves a mixture of two moments.
+
+Redis is refused rather than faked. An RDB is the file Redis reads when it
+*starts*, so there is nothing to load it into while it is running; Hindsight
+will not stop and start a database on its own authority. The refusal names the
+container and says what to do by hand.
+
+Which database a dump goes into is asked, never assumed — the container on a
+replacement machine rarely has the name it had on the original. The agent
+discovers what is there, and the sheet offers them; one obvious candidate is
+chosen for you, two are not. A database that cannot be loaded while running is
+listed and labelled rather than hidden.
+
+The restore sheet now tells the two kinds of snapshot apart. Choosing a dump
+replaces the mode list with the database picker, skips the preview — what a
+dump replaces is inside a database, which a filesystem diff cannot describe —
+and says plainly that there is no safety snapshot to undo it with, so the
+previous dump in the repository is the way back.

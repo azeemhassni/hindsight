@@ -4,6 +4,7 @@ import HindsightCore
 import HindsightEngine
 import HindsightProtocol
 import HindsightRestic
+import HindsightSSH
 
 /// Building the seed that turns a fresh cloud image into a replica.
 ///
@@ -98,5 +99,39 @@ extension AgentCore {
         let privateKey = identityFile(for: server, paths: paths)
         let text = try? String(contentsOfFile: privateKey + ".pub", encoding: .utf8)
         return text?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// Finding the databases on a server, so a dump can be pointed at one.
+extension AgentCore {
+    func discoverDatabases(serverID: String) async -> AgentResponse {
+        do {
+            let id = try ServerID(validating: serverID)
+            guard let server = try catalog.server(id) else {
+                return .failed(message: "No server with id \(serverID).")
+            }
+            refreshSSHConfiguration()
+            let paths = sshPaths()
+            let client = SSHClient(paths: paths, policy: .fromEnvironment())
+            let destination = SSHDestination(
+                server: server,
+                identityFile: identityFile(for: server, paths: paths)
+            )
+            let facts = try await client.probeFacts(on: destination)
+            let targets = try await DatabaseDiscovery(client: client)
+                .discover(on: destination, facts: facts)
+
+            return .databases(targets.map { target in
+                DatabaseTargetReport(
+                    id: target.identifier,
+                    engine: target.engine.rawValue,
+                    displayName: target.displayName,
+                    canLoadWhileRunning: DatabaseLoadCommand
+                        .canLoadIntoRunningServer(target.engine)
+                )
+            })
+        } catch {
+            return .failed(message: "\(error)")
+        }
     }
 }
