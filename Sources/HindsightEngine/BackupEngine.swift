@@ -240,7 +240,12 @@ public struct BackupEngine: Sendable {
                 metadataSnapshot = found.toSnapshot(kind: .metadata)
             }
 
-            for dump in outcome.2 {
+            // Only the dumps that worked. restic creates a snapshot even when
+            // its source could not be read, so recording every dump that came
+            // back with an id filed 22 empty Redis snapshots in this
+            // repository as successful backups — the one kind of bug a backup
+            // tool must not have.
+            for dump in outcome.2 where dump.succeeded {
                 guard let id = dump.snapshotID?.value, let found = byID[id] else { continue }
                 emit(.snapshotCreated(found.toSnapshot(kind: .databaseDump)))
             }
@@ -293,7 +298,13 @@ public struct BackupEngine: Sendable {
             emit(.message(
                 "Dumping \(target.displayName) (\(index + 1) of \(targets.count))…"
             ))
-            let password = plan.databaseCredentials[target.identifier]
+            // The plan may carry one a person typed; otherwise ask the server,
+            // which already holds it.
+            var password = plan.databaseCredentials[target.identifier]
+            if password == nil {
+                password = try? await DatabaseCredentialDiscovery(client: client)
+                    .credential(for: target, on: plan.destination)
+            }
             let databases = (try? await backup.listDatabases(
                 for: target,
                 databasePassword: password,

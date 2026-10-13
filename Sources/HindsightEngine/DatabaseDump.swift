@@ -13,7 +13,14 @@ public enum DatabaseDumpCommand {
         let inner = try engineCommand(for: target)
         switch target.location {
         case let .container(name, _):
-            return "docker exec -i \(ShellQuoting.quote(name)) sh -c \(ShellQuoting.quote(inner))"
+            // `docker exec` starts with the container's environment, not the
+            // caller's, so a password set for the ssh command does not reach
+            // the client inside. `-e NAME` with no value forwards the
+            // caller's — unlike `-e NAME=value`, which would put the password
+            // in `argv` where `ps` can read it.
+            let forwarded = passwordVariable(for: target.engine).map { "-e \($0) " } ?? ""
+            return "docker exec -i \(forwarded)\(ShellQuoting.quote(name)) "
+                + "sh -c \(ShellQuoting.quote(inner))"
         case .hostService, .networkService:
             return inner
         }
@@ -52,21 +59,70 @@ public enum DatabaseDumpCommand {
             // BGSAVE is asynchronous, so the dump waits for the save that it
             // started to finish before reading the file. Comparing the save
             // timestamp is the only reliable signal; polling the file is not.
+            //
+            // Every guard here is one that was missing. `redis-cli` prints
+            // `(error) NOAUTH Authentication required.` to stdout and exits
+            // zero, which `tr -dc '0-9'` reduced to an empty string — and an
+            // empty string never differs from the previous empty string, so
+            // the loop slept through all 600 of its attempts and then reported
+            // nothing. And `--no-raw` keeps the `2) ` list prefix that
+            // `CONFIG GET` numbers its values with, so the path came out as
+            // `2) /data/2) dump.rdb`: the read would have failed even with a
+            // password. Raw output, which is the default when stdout is a
+            // pipe, gives the bare value.
             return """
-            previous=$(redis-cli --no-raw LASTSAVE | tr -dc '0-9')
+            \(redisAuthPreamble)
+            previous=$(redis-cli LASTSAVE | tr -dc '0-9')
+            if [ -z "$previous" ]; then
+              echo "redis-cli could not read LASTSAVE:" 1>&2
+              redis-cli PING 1>&2
+              exit 74
+            fi
             redis-cli BGSAVE > /dev/null
-            for attempt in $(seq 1 600); do
-              current=$(redis-cli --no-raw LASTSAVE | tr -dc '0-9')
-              [ "$current" != "$previous" ] && break
+            current=""
+            for attempt in $(seq 1 \(Self.redisSaveTimeoutSeconds)); do
+              current=$(redis-cli LASTSAVE | tr -dc '0-9')
+              [ -n "$current" ] && [ "$current" != "$previous" ] && break
               sleep 1
             done
-            [ "$current" = "$previous" ] && exit 75
-            directory=$(redis-cli --no-raw CONFIG GET dir | tail -1 | tr -d '"')
-            filename=$(redis-cli --no-raw CONFIG GET dbfilename | tail -1 | tr -d '"')
+            if [ -z "$current" ] || [ "$current" = "$previous" ]; then
+              echo "BGSAVE did not finish within \(Self.redisSaveTimeoutSeconds)s" 1>&2
+              exit 75
+            fi
+            directory=$(redis-cli CONFIG GET dir | tail -1)
+            filename=$(redis-cli CONFIG GET dbfilename | tail -1)
+            if [ -z "$directory" ] || [ -z "$filename" ]; then
+              echo "could not read the RDB location from CONFIG GET" 1>&2
+              exit 76
+            fi
+            if [ ! -s "$directory/$filename" ]; then
+              echo "the RDB at $directory/$filename is missing or empty" 1>&2
+              exit 77
+            fi
             cat "$directory/$filename"
             """
         }
     }
+
+    /// Where `redis-cli` gets its password when nobody passed one in.
+    ///
+    /// A Redis container holds the password it was started with, which is the
+    /// same value `redis-cli` needs and the same place Redis itself read it
+    /// from — so the common case needs no credential handling at all. Only
+    /// exported when it is not empty: `REDISCLI_AUTH=""` makes `redis-cli`
+    /// attempt an authentication and fail with `WRONGPASS`, where leaving it
+    /// unset at least fails with something honest.
+    static let redisAuthPreamble = """
+    if [ -z "${REDISCLI_AUTH:-}" ] && [ -n "${REDIS_PASSWORD:-}" ]; then
+      REDISCLI_AUTH="$REDIS_PASSWORD"
+    fi
+    if [ -n "${REDISCLI_AUTH:-}" ]; then export REDISCLI_AUTH; else unset REDISCLI_AUTH; fi
+    """
+
+    /// How long to wait for a `BGSAVE` to finish. Ten minutes was the old
+    /// value, and with a Redis that could not be reached it was ten minutes
+    /// of sleeping per instance before reporting nothing at all.
+    static let redisSaveTimeoutSeconds = 120
 
     /// Host and port flags for a database that is not local to the command.
     ///

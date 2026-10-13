@@ -169,3 +169,116 @@ public struct DatabaseDiscovery: Sendable {
         return targets
     }
 }
+
+/// Finds the password a database wants, where the server already knows it.
+///
+/// Nothing populated `BackupPlan.databaseCredentials`, so every dump ran with
+/// no password at all. Postgres did not care — `docker exec pg_dump` reaches
+/// the socket as the container's superuser — but a Redis with `requirepass`
+/// answered `NOAUTH` to everything, and the dump reported nothing for ten
+/// minutes.
+///
+/// A container already holds its own credential, in the environment it was
+/// started with or in the arguments it was given. Reading it there means a
+/// person does not have to type a password Hindsight could have found, and it
+/// is the same place the database itself reads it from.
+public struct DatabaseCredentialDiscovery: Sendable {
+    public let client: SSHClient
+
+    public init(client: SSHClient) {
+        self.client = client
+    }
+
+    /// Environment variables each engine's image conventionally carries,
+    /// most specific first.
+    static func variables(for engine: DatabaseEngine) -> [String] {
+        switch engine {
+        case .redis: ["REDIS_PASSWORD", "REDIS_AUTH", "REDISCLI_AUTH"]
+        case .postgres: ["POSTGRES_PASSWORD", "PGPASSWORD"]
+        case .mysql: ["MYSQL_ROOT_PASSWORD", "MYSQL_PASSWORD", "MYSQL_PWD"]
+        case .mariadb: ["MARIADB_ROOT_PASSWORD", "MYSQL_ROOT_PASSWORD", "MARIADB_PASSWORD"]
+        case .mongodb: ["MONGO_INITDB_ROOT_PASSWORD", "MONGODB_ROOT_PASSWORD"]
+        }
+    }
+
+    public func credential(
+        for target: DatabaseTarget,
+        on destination: SSHDestination,
+        timeout: Duration = .seconds(60)
+    ) async throws -> Secret? {
+        guard case let .container(name, _) = target.location else { return nil }
+
+        // Environment and command in one call, separated by a marker: two
+        // round trips per database adds up over eleven of them.
+        let script = """
+        docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' \(ShellQuoting.quote(name))
+        echo '---hindsight-cmd---'
+        docker inspect --format '{{range .Config.Cmd}}{{println .}}{{end}}' \(ShellQuoting.quote(name))
+        """
+        let result = try await client.run(
+            RemoteCommand(
+                executable: "/bin/sh",
+                arguments: ["-c", script],
+                requiresRoot: true
+            ),
+            on: destination,
+            allowedExitCodes: [0, 1, 125, 127],
+            timeout: timeout
+        )
+        guard result.exit.terminationStatus == 0 else { return nil }
+
+        let label = "database password for \(target.identifier)"
+        if let value = Self.password(
+            inEnvironment: result.standardOutputLines,
+            engine: target.engine
+        ) {
+            return Secret(label: label, value: value)
+        }
+        if let value = Self.password(inArguments: result.standardOutputLines) {
+            return Secret(label: label, value: value)
+        }
+        return nil
+    }
+
+    static func password(inEnvironment lines: [String], engine: DatabaseEngine) -> String? {
+        var found: [String: String] = [:]
+        for line in lines {
+            guard line != "---hindsight-cmd---" else { break }
+            guard let separator = line.firstIndex(of: "=") else { continue }
+            let name = String(line[line.startIndex..<separator])
+            let value = String(line[line.index(after: separator)...])
+            guard !value.isEmpty else { continue }
+            found[name] = value
+        }
+        for variable in variables(for: engine) {
+            if let value = found[variable] { return value }
+        }
+        return nil
+    }
+
+    /// `redis-server --requirepass hunter2`, and the same shape for anything
+    /// else that takes its password on the command line.
+    static func password(inArguments lines: [String]) -> String? {
+        guard let marker = lines.firstIndex(of: "---hindsight-cmd---") else { return nil }
+        let arguments = lines[lines.index(after: marker)...].map {
+            $0.trimmingCharacters(in: .whitespaces)
+        }
+        for (index, argument) in arguments.enumerated() {
+            let flag = argument.lowercased()
+            guard flag == "--requirepass" || flag == "--password" else { continue }
+            let next = index + 1
+            guard next < arguments.count, !arguments[next].isEmpty,
+                  !arguments[next].hasPrefix("--")
+            else { continue }
+            return arguments[next]
+        }
+        // `--requirepass=hunter2`
+        for argument in arguments {
+            for flag in ["--requirepass=", "--password="] where argument.hasPrefix(flag) {
+                let value = String(argument.dropFirst(flag.count))
+                if !value.isEmpty { return value }
+            }
+        }
+        return nil
+    }
+}

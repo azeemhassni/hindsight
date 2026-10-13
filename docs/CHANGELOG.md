@@ -568,3 +568,54 @@ real server runs well past that, so the search was answering from the first
 half of the snapshot: a file in `/var` could not be found while the same search
 in `/etc` worked. Listings are streamed now, which also lets a capped search
 stop the restic process early instead of reading to the end.
+
+## The Redis dumps were never working
+
+A backup log showed eleven databases dumped, seven Postgres ones succeeding
+and four Redis ones failing — each failure taking ten minutes, and the job
+still finishing as a success. The catalog held 22 Redis "dump" snapshots of
+zero bytes. Four separate bugs, each reproduced in a local container:
+
+- **No database password was ever supplied.** `BackupPlan.databaseCredentials`
+  was read in exactly one place and written in none, so every dump ran with no
+  password. Postgres did not care — `docker exec pg_dump` reaches the socket as
+  the container's own superuser — which is why it looked like Redis was the
+  broken one.
+- **An unreachable Redis was indistinguishable from a slow one.**
+  `redis-cli` prints `(error) NOAUTH Authentication required.` on **stdout**
+  and exits **zero**, so `tr -dc '0-9'` reduced it to an empty string. The
+  script compared that against the previous empty string, found no difference,
+  and slept through all 600 of its one-second attempts before giving up.
+- **The RDB path was wrong anyway.** `redis-cli --no-raw CONFIG GET dir`
+  numbers its values, so `tail -1` yielded `2) "/data"` and the path came out
+  as `2) /data/2) dump.rdb`. The dump would have failed with a correct
+  password. Raw output, the default when stdout is a pipe, gives the bare
+  value.
+- **A failed dump was recorded as a snapshot.** restic writes a snapshot even
+  when it could not read its source, warning and exiting 3. The engine
+  recorded every dump that came back with a snapshot id, ignoring whether it
+  had succeeded, so the Snapshots tab listed empty Redis backups as real ones.
+
+What changed. The dump reads the password the container already holds —
+`REDIS_PASSWORD` and the equivalents for every other engine — which is the
+same place the database itself read it from, so the common case needs no
+credential handling at all. A password only on the command line
+(`redis-server --requirepass …`) is found by inspecting the container, and
+forwarded with `docker exec -e NAME`: the pass-through form, because
+`-e NAME=value` would put the password in `argv`. `docker exec` starts from the
+container's environment and not the caller's, which is why a password set for
+the ssh command never reached the client inside.
+
+The script now refuses to poll when it cannot read `LASTSAVE` at all, and says
+why — the log carries `NOAUTH Authentication required.` rather than restic's
+complaint about an unreadable file. The wait for a `BGSAVE` is two minutes
+rather than ten, and the RDB is checked for existence and size before it is
+streamed. A dump that produces no bytes is a failed dump whatever restic
+reports, and a failed dump is not recorded.
+
+Measured against redis 7 in Docker: a password-protected instance dumps in
+1.2s where it used to produce nothing in 600s, and an instance whose password
+genuinely cannot be found fails in about a second with the reason.
+
+Also fixed: one test in sixteen runs compared a token against itself, because
+it built a wrong token by replacing the last hex character with `0`.

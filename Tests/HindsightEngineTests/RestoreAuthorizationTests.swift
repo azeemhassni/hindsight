@@ -127,8 +127,16 @@ struct RestoreAuthorizationTests {
     func comparesTokensWithoutLeakingTheirShape() {
         let token = AgentCore.makeToken()
         #expect(AgentCore.constantTimeEquals(token, token))
-        #expect(!AgentCore.constantTimeEquals(token, String(token.dropLast()) + "0"))
         #expect(!AgentCore.constantTimeEquals(token, String(token.dropLast())))
+
+        // Flipping the last character rather than setting it to a fixed one:
+        // a token is hex, so one run in sixteen ended with that character
+        // already and compared a token against itself. Found by the suite
+        // failing on an unrelated change.
+        let last = token.last ?? "0"
+        let flipped = String(token.dropLast()) + (last == "0" ? "1" : "0")
+        #expect(flipped != token)
+        #expect(!AgentCore.constantTimeEquals(token, flipped))
     }
 
     @Test("every token is different")

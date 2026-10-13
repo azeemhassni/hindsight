@@ -130,6 +130,12 @@ public struct DatabaseBackup: Sendable {
             outcome.failure = result.standardError.isEmpty
                 ? "the dump exited with status \(result.exit.terminationStatus)"
                 : result.standardError
+        } else if outcome.bytesProcessed == 0 {
+            // restic writes a snapshot even when it could not read its source,
+            // warning and exiting 3 — so an empty dump arrives looking like a
+            // backup. No database dumps to nothing: even an empty one carries
+            // a schema header.
+            outcome.failure = "the dump produced no data"
         }
 
         return outcome

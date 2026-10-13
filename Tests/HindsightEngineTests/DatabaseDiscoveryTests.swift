@@ -110,7 +110,12 @@ struct DatabaseDumpCommandTests {
             databaseName: "app_production"
         )
         let pipeline = try DatabaseDumpCommand.pipeline(for: target)
-        #expect(pipeline.hasPrefix("docker exec -i app-db sh -c "))
+        // The password variable is forwarded by name, which `docker exec`
+        // leaves unset in the container when the caller has not set it — so
+        // Postgres reaching its socket as the container's own superuser,
+        // which is how this has always worked, is unaffected. Verified
+        // against postgres:16 in Docker.
+        #expect(pipeline.hasPrefix("docker exec -i -e PGPASSWORD app-db sh -c "))
         #expect(pipeline.contains("pg_dump"))
         #expect(pipeline.contains("--format=custom"))
         #expect(pipeline.contains("app_production"))
