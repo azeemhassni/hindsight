@@ -151,3 +151,54 @@ struct LineSplittingTests {
         #expect(result.standardOutput == "trailing")
     }
 }
+
+/// What a failure reads like.
+///
+/// A remote restic call is an ssh invocation wrapping a shell script wrapping
+/// restic. Leading with that put three hundred characters in front of the one
+/// line saying what went wrong, and a restore sheet showed the command twice
+/// and the reason not at all.
+@Suite("Failure messages")
+struct ProcessErrorMessageTests {
+    private let exit = ProcessExit(terminationStatus: 1, uncaughtSignal: nil, duration: .seconds(1))
+
+    @Test("the reason comes before the command")
+    func reasonLeads() {
+        let error = ProcessError.exitedWithFailure(
+            command: "ssh restic",
+            exit: exit,
+            standardError: "Fatal: unable to open repository at /nowhere"
+        )
+        let text = "\(error)"
+        #expect(text.hasPrefix("Fatal: unable to open repository"))
+        #expect(text.contains("ssh restic exited with status 1"))
+    }
+
+    @Test("a failure with nothing on stderr still says what ran")
+    func withoutStandardError() {
+        let error = ProcessError.exitedWithFailure(
+            command: "ssh restic",
+            exit: exit,
+            standardError: "   \n "
+        )
+        #expect("\(error)" == "ssh restic exited with status 1.")
+    }
+
+    /// The long form is what made the message unreadable.
+    @Test("a wrapped command is named by what it was doing")
+    func shortDescriptionNamesTheOperation() {
+        let command = Command(
+            path: "/usr/bin/ssh",
+            arguments: [
+                "-F", "/Users/me/Library/Application Support/Hindsight/ssh/config",
+                "hs-137-184-108-44", "--", "/bin/sh", "-c",
+                "IFS= read -r __hs_RESTIC_PASSWORD || exit 97; export RESTIC_PASSWORD; restic restore …",
+            ]
+        )
+        // Recognisable, and short enough to read.
+        #expect(command.shortDescription == "ssh hs-137-184-108-44")
+        #expect(command.shortDescription.count < 40)
+        // Nothing from the script, which is where the secrets and the noise are.
+        #expect(!command.shortDescription.contains("RESTIC_PASSWORD"))
+    }
+}

@@ -103,6 +103,22 @@ public struct Command: Sendable {
         return redactor.redact(joined)
     }
 
+    /// Enough of the command to recognise it, and no more.
+    ///
+    /// A remote restic call is an ssh invocation wrapping a shell script
+    /// wrapping restic, and the whole thing runs to hundreds of characters.
+    /// Putting that in an error message buries the one line that says what
+    /// went wrong somewhere past the end of any window showing it.
+    public var shortDescription: String {
+        let name = (executablePath as NSString).lastPathComponent
+        // The first argument that looks like a subcommand rather than a flag
+        // or a path, which is what names what was being attempted.
+        let subcommand = arguments.first {
+            !$0.hasPrefix("-") && !$0.hasPrefix("/") && $0.count < 24 && !$0.contains(" ")
+        }
+        return subcommand.map { "\(name) \($0)" } ?? name
+    }
+
     var executableURL: URL { URL(fileURLWithPath: executablePath) }
 
     func validate() throws {

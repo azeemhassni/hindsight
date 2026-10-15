@@ -402,3 +402,53 @@ struct RestoreTargetKeyTests {
         #expect(drafts.first?.identityFile == nil)
     }
 }
+
+/// How a failure reads.
+@MainActor
+@Suite("Reporting a failed restore")
+struct RestoreFailureTests {
+    private func failed(with message: String) -> RestoreFlow {
+        let flow = RestoreFlow(
+            model: AppModel(),
+            serverID: "web-01",
+            serverHostname: "web-01.example"
+        )
+        flow.stage = .failed(message)
+        return flow
+    }
+
+    /// What the sheet showed: the whole ssh invocation, twice, with the reason
+    /// off the end of it.
+    @Test("the first line is the reason, not the command")
+    func summaryIsTheReason() {
+        let flow = failed(with: """
+        ssh: connect to host 137.184.108.44 port 22: Connection refused
+
+        ssh hs-137-184-108-44 exited with status 255.
+        """)
+        #expect(flow.failureSummary == "ssh: connect to host 137.184.108.44 port 22: Connection refused")
+        #expect(flow.failureDetail?.contains("exited with status 255") == true)
+    }
+
+    @Test("the status line no longer repeats the failure")
+    func statusDoesNotRepeat() {
+        let flow = failed(with: "Fatal: unable to open repository")
+        #expect(!flow.statusText.contains("Fatal"))
+        #expect(flow.statusText.contains("Nothing on the server was changed"))
+    }
+
+    @Test("a very long single line is cut rather than filling the sheet")
+    func longLinesAreCut() {
+        let flow = failed(with: String(repeating: "x", count: 600))
+        let summary = try! #require(flow.failureSummary)
+        #expect(summary.count <= 201)
+        #expect(summary.hasSuffix("…"))
+    }
+
+    @Test("a one-line failure has no detail to expand")
+    func shortFailureHasNoDetail() {
+        let flow = failed(with: "Could not resolve hostname")
+        #expect(flow.failureSummary == "Could not resolve hostname")
+        #expect(flow.failureDetail == nil)
+    }
+}

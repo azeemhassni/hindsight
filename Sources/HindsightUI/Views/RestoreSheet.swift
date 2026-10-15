@@ -20,6 +20,7 @@ public struct RestoreSheetView: View {
     let onClose: () -> Void
 
     @State private var addingTarget: RestoreTargetFlow?
+    @State private var showingFailureDetail = false
 
     public init(
         flow: RestoreFlow,
@@ -127,13 +128,52 @@ public struct RestoreSheetView: View {
                     .lineLimit(6)
                 }
             }
-        case let .failed(message):
-            Label(message, systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .lineLimit(6)
+        case .failed:
+            failure
         }
+    }
+
+    /// What went wrong, with the reason first and the rest available.
+    ///
+    /// This used to print the whole ssh invocation twice: once as the status
+    /// line and once in red, with the one line that explained the failure
+    /// somewhere past the edge of the sheet.
+    @ViewBuilder
+    private var failure: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(
+                flow.failureSummary ?? "The restore did not run.",
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .foregroundStyle(.red)
+            .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
+            .lineLimit(6)
+
+            if let detail = flow.failureDetail {
+                DisclosureGroup("What Hindsight ran", isExpanded: $showingFailureDetail) {
+                    ScrollView {
+                        Text(detail)
+                            .font(.caption.monospaced())
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 6)
+                    }
+                    .frame(maxHeight: 180)
+                }
+                .help("The full command and output, for a bug report or a retry by hand")
+            }
+
+            Text("""
+            Nothing on the target was changed: this failed before anything was \
+            written.
+            """)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .lineLimit(3)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Where the snapshot lands. Only shown when there is somewhere else it

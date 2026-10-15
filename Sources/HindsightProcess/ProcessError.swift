@@ -7,6 +7,8 @@ public enum ProcessError: Error, Hashable, Sendable, CustomStringConvertible {
     case executableMissing(String)
     case workingDirectoryMissing(String)
     case launchFailed(command: String, reason: String)
+    /// `command` is the short form: enough to recognise what was run. The
+    /// reason a person needs is in `standardError`, which is why it leads.
     case exitedWithFailure(command: String, exit: ProcessExit, standardError: String)
     case cancelled(command: String)
     case timedOut(command: String, after: Duration)
@@ -21,11 +23,15 @@ public enum ProcessError: Error, Hashable, Sendable, CustomStringConvertible {
             "No directory at \(path.debugDescription)."
         case let .launchFailed(command, reason):
             "Could not start \(command): \(reason)"
+        // What went wrong first, what was running second. The other order put
+        // a three-hundred-character ssh invocation in front of the one line
+        // that explains the failure.
         case let .exitedWithFailure(command, exit, standardError):
             if let signal = exit.uncaughtSignal {
-                "\(command) was killed by signal \(signal).\(Self.suffix(standardError))"
+                "\(Self.leading(standardError))\(command) was killed by signal \(signal)."
             } else {
-                "\(command) exited with status \(exit.terminationStatus).\(Self.suffix(standardError))"
+                "\(Self.leading(standardError))\(command) exited with status "
+                    + "\(exit.terminationStatus)."
             }
         case let .cancelled(command):
             "\(command) was cancelled."
@@ -34,8 +40,8 @@ public enum ProcessError: Error, Hashable, Sendable, CustomStringConvertible {
         }
     }
 
-    private static func suffix(_ standardError: String) -> String {
+    private static func leading(_ standardError: String) -> String {
         let trimmed = standardError.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "" : "\n\(trimmed)"
+        return trimmed.isEmpty ? "" : trimmed + "\n\n"
     }
 }

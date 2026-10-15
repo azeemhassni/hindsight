@@ -254,9 +254,29 @@ public final class RestoreFlow: Identifiable {
         case let .finished(_, safetySnapshotID):
             return "Finished. Undo it by restoring snapshot "
                 + "\(safetySnapshotID.map { String($0.prefix(8)) } ?? "—")."
-        case let .failed(message):
-            return message
+        case .failed:
+            // The detail is shown in full below rather than twice over.
+            return "This restore did not run. Nothing on the server was changed."
         }
+    }
+
+    /// The first line of a failure: what went wrong, without the detail.
+    public var failureSummary: String? {
+        guard case let .failed(message) = stage else { return nil }
+        let first = message
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .first
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespaces)
+        guard let first, !first.isEmpty else { return message }
+        return first.count > 200 ? String(first.prefix(200)) + "…" : first
+    }
+
+    /// Everything the failure carried, for when the first line is not enough.
+    public var failureDetail: String? {
+        guard case let .failed(message) = stage else { return nil }
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed == failureSummary ? nil : trimmed
     }
 }
 

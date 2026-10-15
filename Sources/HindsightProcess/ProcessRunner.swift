@@ -103,7 +103,7 @@ public struct ProcessRunner: Sendable {
                 }
                 group.addTask {
                     try await Task.sleep(for: timeout)
-                    throw ProcessError.timedOut(command: command.redactedDescription, after: timeout)
+                    throw ProcessError.timedOut(command: command.shortDescription, after: timeout)
                 }
                 let result = try await group.next()!
                 group.cancelAll()
@@ -155,7 +155,10 @@ public struct ProcessRunner: Sendable {
 
         guard exit.uncaughtSignal == nil, allowedExitCodes.contains(exit.terminationStatus) else {
             throw ProcessError.exitedWithFailure(
-                command: command.redactedDescription,
+                // The short form: the whole invocation is a wrapped script
+                // hundreds of characters long, and this message is read in a
+                // window.
+                command: command.shortDescription,
                 exit: exit,
                 standardError: standardError
             )
