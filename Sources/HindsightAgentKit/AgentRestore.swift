@@ -25,12 +25,15 @@ extension AgentCore {
         )
     }
 
-    func identityFile(for server: Server, paths: SSHPaths) -> String {
+    /// nil where ssh should decide for itself.
+    func identityFile(for server: Server, paths: SSHPaths) -> String? {
         switch server.authentication {
         case .managedKey:
             paths.configurationDirectory.appendingPathComponent("\(server.id.value).key").path
         case let .existingKey(path):
             path
+        case .systemDefault:
+            nil
         }
     }
 

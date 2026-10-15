@@ -70,7 +70,10 @@ extension AgentCore {
     /// Shared by onboarding and by adding a machine purely to restore onto:
     /// both need a managed ssh configuration and a host key that has been
     /// confirmed, and only one of them needs somewhere to keep backups.
-    private func saveConnection(_ draft: AddServerDraft) throws -> (ServerID, SSHPaths) {
+    private func saveConnection(
+        _ draft: AddServerDraft,
+        authentication: SSHAuthentication? = nil
+    ) throws -> (ServerID, SSHPaths) {
         let id = try uniqueIdentifier(for: draft.name.isEmpty ? draft.host : draft.name)
         let paths = sshPaths()
 
@@ -78,7 +81,9 @@ extension AgentCore {
             id: id,
             name: draft.name.isEmpty ? draft.host : draft.name,
             endpoint: try SSHEndpoint(host: draft.host, port: draft.port, user: draft.user),
-            authentication: draft.identityFile.map { .existingKey(path: $0) } ?? .managedKey,
+            authentication: authentication
+                ?? draft.identityFile.map { .existingKey(path: $0) }
+                ?? .managedKey,
             privilege: draft.user == "root" ? .root : .sudo
         )
         try catalog.save(server)
@@ -94,7 +99,14 @@ extension AgentCore {
     /// for ever. It still goes through the same host key confirmation, because
     /// a restore is the last operation that should reach an unverified machine.
     func addRestoreTarget(_ draft: AddServerDraft) async throws -> ServerID {
-        let (id, paths) = try saveConnection(draft)
+        // No key named means ssh decides, not that Hindsight should offer a
+        // key of its own. Onboarding generates a key and installs it; this
+        // machine already exists and already trusts something, and the
+        // generated key is not it.
+        let (id, paths) = try saveConnection(
+            draft,
+            authentication: draft.identityFile.map { .existingKey(path: $0) } ?? .systemDefault
+        )
         try SSHConfiguration(paths: paths).write(for: existingDestinations())
         return id
     }

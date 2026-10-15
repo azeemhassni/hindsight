@@ -1,5 +1,8 @@
 import HindsightProtocol
 import SwiftUI
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// Connection details for a machine to restore onto.
 public struct RestoreTargetSheet: View {
@@ -84,7 +87,29 @@ public struct RestoreTargetSheet: View {
                     TextField("Optional, for the list", text: $flow.name)
                         .textFieldStyle(.roundedBorder)
                 }
+                GridRow {
+                    Text("Key")
+                    HStack(spacing: 8) {
+                        Text(flow.identityFile.map(shortened) ?? "Let ssh decide")
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                            .foregroundStyle(flow.identityFile == nil ? .secondary : .primary)
+                        Spacer(minLength: 4)
+                        if flow.identityFile != nil {
+                            Button("Clear") { flow.identityFile = nil }
+                                .buttonStyle(.link)
+                                .help("Go back to letting ssh choose the key")
+                        }
+                        Button("Choose…") { chooseKey() }
+                            .help("Point at a private key file to use for this machine")
+                    }
+                }
             }
+            Text(flow.authenticationSummary)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(4)
             Text("""
             This machine is recorded as somewhere to restore onto. Nothing on \
             it is backed up, and it gets no schedule of its own.
@@ -101,6 +126,31 @@ public struct RestoreTargetSheet: View {
                     .lineLimit(6)
             }
         }
+    }
+
+    private func shortened(_ path: String) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
+    }
+
+    /// A key file the person points at. `~/.ssh` is hidden in the open panel
+    /// by default, so it is shown and started from.
+    private func chooseKey() {
+        #if canImport(AppKit)
+        let panel = NSOpenPanel()
+        panel.title = "Choose a private key"
+        panel.message = """
+        The private key for this machine. Hindsight refers to it where it is         and never copies or moves it.
+        """
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.showsHiddenFiles = true
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".ssh")
+        panel.prompt = "Use this key"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        flow.identityFile = url.path
+        #endif
     }
 
     private func hostKey(_ report: HostKeyReport) -> some View {

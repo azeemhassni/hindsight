@@ -615,9 +615,15 @@ public actor AgentCore {
             hindsightVersion: version
         )
 
-        let identityFile = switch server.authentication {
-        case .managedKey: paths.configurationDirectory.appendingPathComponent("\(server.id.value).key").path
-        case let .existingKey(path): path
+        let identityFile: String? = switch server.authentication {
+        case .managedKey:
+            paths.configurationDirectory.appendingPathComponent("\(server.id.value).key").path
+        case let .existingKey(path):
+            path
+        // A server Hindsight backs up is given a key during onboarding, so
+        // this is only reached by a machine added as a restore destination.
+        case .systemDefault:
+            nil
         }
 
         // The profile's own excludes live in code so an upgrade can improve

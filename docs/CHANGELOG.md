@@ -764,3 +764,39 @@ plainly when a dump is being loaded somewhere other than its origin.
 Snapshots taken before this keep their old paths and their old group. They are
 still listed, still restorable, and still say what little they recorded; what
 they cannot say is which of several identical siblings they are.
+
+## A restore target authenticates the way ssh does
+
+Two faults, one of them mine from the day before.
+
+The sheet for adding a machine to restore onto had no field for an ssh key at
+all. `RestoreTargetFlow` carried an `identityFile` and nothing ever set it.
+
+Worse, with no key named, such a machine fell back to `.managedKey` — the key
+Hindsight generates during onboarding and installs on a server it backs up.
+A machine being restored onto has never seen that key, so the connection could
+not succeed by any route.
+
+The fix is not to pick a key. Hindsight's configuration pinned every
+connection with `IdentityFile`, `IdentitiesOnly yes` and `IdentityAgent none`,
+which is right for a server it set up — a backup must authenticate with
+exactly the key it was configured with, and never quietly fall back to
+something else. It is wrong for a machine that already exists and already
+trusts whatever its owner put on it, usually an agent or a key named in their
+own ssh configuration. Pinning it to a key Hindsight chose means refusing the
+one that works.
+
+So `SSHAuthentication` gains `systemDefault`: no `IdentityFile`, no
+`IdentitiesOnly`, no `IdentityAgent none`, and ssh resolves the connection the
+way it would from a terminal. A machine added as a restore destination uses it
+unless a key is named. Onboarding is unchanged and still generates a managed
+key, because it installs that key itself.
+
+The sheet now has the missing field, showing either the chosen key or "Let ssh
+decide", with the panel opening in `~/.ssh` since it is hidden by default. A
+key is referred to where it is and never copied, which is what
+`existingKey(path:)` has always meant.
+
+Host key checking is untouched by any of this — still pinned, still
+`StrictHostKeyChecking yes`, still Hindsight's own `known_hosts`. Only which
+key is offered changed, and only for machines Hindsight did not set up.

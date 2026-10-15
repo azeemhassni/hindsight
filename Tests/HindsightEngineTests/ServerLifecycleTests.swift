@@ -170,3 +170,73 @@ struct HealthReasonTests {
         )
     }
 }
+
+/// Which authentication a machine gets when it is recorded.
+@Suite("Authentication for a restore target")
+struct RestoreTargetAuthenticationTests {
+    /// Its own directories: adding a machine writes an ssh configuration, and
+    /// a test must never write into the installed one.
+    private func makeCore() throws -> (AgentCore, Catalog) {
+        let base = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("hindsight-target-auth-\(UUID().uuidString)")
+        let configuration = AgentConfiguration(
+            catalogURL: base.appendingPathComponent("catalog.sqlite"),
+            repositoryRoot: base.appendingPathComponent("repos"),
+            sshConfigurationDirectory: base.appendingPathComponent("ssh"),
+            binaryDirectory: base.appendingPathComponent("bin")
+        )
+        let catalog = try Catalog.open(at: configuration.catalogURL)
+        let core = AgentCore(
+            configuration: configuration,
+            catalog: catalog,
+            secrets: InMemorySecretStore(),
+            version: "test"
+        )
+        return (core, catalog)
+    }
+
+    private func draft(identityFile: String?) -> AddServerDraft {
+        AddServerDraft(
+            name: "Replacement",
+            host: "198.51.100.20",
+            port: 22,
+            user: "root",
+            identityFile: identityFile,
+            repositoryPath: nil
+        )
+    }
+
+    /// Onboarding generates a key and installs it. A restore target already
+    /// exists and already trusts something, and Hindsight's generated key is
+    /// not it — so offering that key is offering the one that cannot work.
+    @Test("a restore target with no key named lets ssh decide")
+    func noKeyMeansSystemDefault() async throws {
+        let (core, catalog) = try makeCore()
+        let id = try await core.addRestoreTarget(draft(identityFile: nil))
+
+        let server = try #require(try catalog.server(id))
+        #expect(server.authentication == .systemDefault)
+        // And it is a destination, not something that gets backed up.
+        #expect(try catalog.repository(forServer: id) == nil)
+    }
+
+    @Test("a named key is used as it was given")
+    func namedKeyIsUsed() async throws {
+        let (core, catalog) = try makeCore()
+        let id = try await core.addRestoreTarget(draft(identityFile: "/Users/me/.ssh/deploy"))
+
+        let server = try #require(try catalog.server(id))
+        #expect(server.authentication == .existingKey(path: "/Users/me/.ssh/deploy"))
+    }
+
+    /// Unchanged: a server being backed up is still given a key of its own.
+    @Test("onboarding still generates a managed key")
+    func onboardingIsUnchanged() async throws {
+        let (core, catalog) = try makeCore()
+        let id = try await core.addServer(draft(identityFile: nil))
+
+        let server = try #require(try catalog.server(id))
+        #expect(server.authentication == .managedKey)
+        #expect(try catalog.repository(forServer: id) != nil)
+    }
+}

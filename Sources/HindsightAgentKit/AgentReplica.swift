@@ -96,7 +96,10 @@ extension AgentCore {
     /// restore that follows without anybody editing a file on it by hand.
     func publicKey(for server: Server) -> String? {
         let paths = sshPaths()
-        let privateKey = identityFile(for: server, paths: paths)
+        // Nothing to offer when ssh is resolving the key itself: Hindsight
+        // does not know which one it would pick, and guessing would put the
+        // wrong key in the replica's authorized_keys.
+        guard let privateKey = identityFile(for: server, paths: paths) else { return nil }
         let text = try? String(contentsOfFile: privateKey + ".pub", encoding: .utf8)
         return text?.trimmingCharacters(in: .whitespacesAndNewlines)
     }

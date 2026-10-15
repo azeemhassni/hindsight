@@ -28,6 +28,9 @@ public final class RestoreTargetFlow: Identifiable {
     public var host = ""
     public var port = "22"
     public var user = "root"
+    /// nil means ssh resolves the key itself — the agent, `~/.ssh/config`,
+    /// its own defaults — which is how the machine is almost certainly already
+    /// reachable from a terminal.
     public var identityFile: String?
     public private(set) var stage: Stage = .details
     public private(set) var probe: ServerProbeReport?
@@ -42,6 +45,17 @@ public final class RestoreTargetFlow: Identifiable {
         guard let value = Int(port.trimmingCharacters(in: .whitespaces)), (1...65535).contains(value)
         else { return nil }
         return value
+    }
+
+    /// What the sheet says about how it will authenticate.
+    public var authenticationSummary: String {
+        guard let identityFile else {
+            return """
+            Hindsight will connect the way ssh does from a terminal: your \
+            agent, your ssh configuration, and your own default keys.
+            """
+        }
+        return "Using the key at \(identityFile)."
     }
 
     public var canScan: Bool {

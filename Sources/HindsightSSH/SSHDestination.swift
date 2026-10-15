@@ -7,7 +7,10 @@ public struct SSHDestination: Hashable, Sendable {
     public let host: String
     public let port: Int
     public let user: String
-    public let identityFile: String
+    /// nil means ssh decides: no `IdentityFile`, no `IdentitiesOnly` and no
+    /// `IdentityAgent none`, so the agent and the user's own configuration
+    /// apply as they would from a terminal.
+    public let identityFile: String?
     public let privilege: Privilege
 
     public init(
@@ -15,7 +18,7 @@ public struct SSHDestination: Hashable, Sendable {
         host: String,
         port: Int,
         user: String,
-        identityFile: String,
+        identityFile: String?,
         privilege: Privilege
     ) {
         self.serverID = serverID
@@ -26,7 +29,7 @@ public struct SSHDestination: Hashable, Sendable {
         self.privilege = privilege
     }
 
-    public init(server: Server, identityFile: String) {
+    public init(server: Server, identityFile: String?) {
         self.init(
             serverID: server.id,
             host: server.endpoint.host,

@@ -8,14 +8,15 @@ func makeDestination(
     host: String = "127.0.0.1",
     port: Int = 2222,
     user: String = "root",
-    privilege: Privilege = .root
+    privilege: Privilege = .root,
+    identityFile: String? = "/tmp/hindsight-test/id_ed25519"
 ) throws -> SSHDestination {
     SSHDestination(
         serverID: try ServerID(validating: id),
         host: host,
         port: port,
         user: user,
-        identityFile: "/tmp/hindsight-test/id_ed25519",
+        identityFile: identityFile,
         privilege: privilege
     )
 }
@@ -107,6 +108,41 @@ struct SSHPathsTests {
 
 @Suite("SSH configuration")
 struct SSHConfigurationTests {
+    /// A server Hindsight backs up is given a key during onboarding and
+    /// pinned to it, so a backup cannot quietly start authenticating as
+    /// something else.
+    @Test("a key Hindsight chose shuts out the agent and the user's defaults")
+    func pinnedKeyIsExclusive() throws {
+        let stanza = try SSHConfiguration(paths: try makeTemporaryPaths())
+            .stanza(for: try makeDestination())
+
+        #expect(stanza.contains("IdentityFile /tmp/hindsight-test/id_ed25519"))
+        #expect(stanza.contains("IdentitiesOnly yes"))
+        #expect(stanza.contains("IdentityAgent none"))
+    }
+
+    /// A machine added only to restore onto has no key of Hindsight's: it
+    /// already trusts whatever its owner put on it, and is reachable from a
+    /// terminal. `IdentitiesOnly yes` and `IdentityAgent none` are exactly
+    /// what stop that from working here, so all three lines must be absent.
+    @Test("no key of our own means ssh decides, with nothing overriding it")
+    func systemDefaultLeavesSSHAlone() throws {
+        let paths = try makeTemporaryPaths()
+        let stanza = try SSHConfiguration(paths: paths)
+            .stanza(for: try makeDestination(identityFile: nil))
+
+        #expect(!stanza.contains("IdentityFile"))
+        #expect(!stanza.contains("IdentitiesOnly"))
+        #expect(!stanza.contains("IdentityAgent"))
+
+        // Everything that makes the connection safe is untouched.
+        #expect(stanza.contains("StrictHostKeyChecking yes"))
+        #expect(stanza.contains("UserKnownHostsFile \(paths.knownHostsFile.path)"))
+        #expect(stanza.contains("GlobalKnownHostsFile /dev/null"))
+        #expect(stanza.contains("BatchMode yes"))
+        #expect(stanza.contains("ForwardAgent no"))
+    }
+
     @Test("pins host key checking and never touches the user's own ssh setup")
     func stanzaIsStrict() throws {
         let paths = try makeTemporaryPaths()

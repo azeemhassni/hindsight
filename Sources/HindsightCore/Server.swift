@@ -20,6 +20,15 @@ public enum SSHAuthentication: Hashable, Sendable, Codable {
     case managedKey
     /// A key the user already had. Referenced by path and never copied.
     case existingKey(path: String)
+    /// However ssh would authenticate on its own: the agent, `~/.ssh/config`,
+    /// and its own default key names.
+    ///
+    /// For a machine Hindsight did not set up. A server it backs up is given a
+    /// key during onboarding and pinned to it, but a machine being restored
+    /// onto already exists and already trusts whatever its owner put on it —
+    /// often an agent or a key named in their own ssh configuration. Pinning
+    /// that machine to a key Hindsight chose means refusing the one that works.
+    case systemDefault
 }
 
 public enum Privilege: String, Hashable, Sendable, Codable, CaseIterable {

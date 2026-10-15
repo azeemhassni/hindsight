@@ -330,3 +330,75 @@ struct DumpOriginTests {
         #expect(flow.isLoadingElsewhere)
     }
 }
+
+/// Pointing at a key, or not.
+@MainActor
+@Suite("A restore target's key")
+struct RestoreTargetKeyTests {
+    private func makeFlow(record: @escaping (AgentRequest) -> Void = { _ in }) -> RestoreTargetFlow {
+        let model = AppModel()
+        model.send = { request in
+            record(request)
+            switch request {
+            case .scanHostKey:
+                return .hostKey(HostKeyReport(
+                    keyType: "ssh-ed25519",
+                    base64Key: "AAAAC3Nza",
+                    fingerprint: "SHA256:abc"
+                ))
+            case .probeServer:
+                return .probe(ServerProbeReport(
+                    prettyName: "Ubuntu 24.04",
+                    architecture: "aarch64",
+                    hasPasswordlessSudo: true,
+                    dockerVersion: nil,
+                    homeDirectory: "/root",
+                    isTestTarget: false
+                ))
+            case .addRestoreTarget:
+                return .serverAdded(serverID: "web-02")
+            default:
+                return .done
+            }
+        }
+        let flow = RestoreTargetFlow(model: model)
+        flow.host = "198.51.100.20"
+        flow.user = "root"
+        return flow
+    }
+
+    /// The machine is already reachable from a terminal, and naming a key
+    /// Hindsight picked would refuse the one that actually works.
+    @Test("no key by default, and it says so")
+    func defaultsToLettingSSHDecide() {
+        let flow = makeFlow()
+        #expect(flow.identityFile == nil)
+        #expect(flow.authenticationSummary.contains("the way ssh does"))
+        #expect(flow.authenticationSummary.contains("agent"))
+    }
+
+    @Test("a chosen key is carried through and described")
+    func carriesAChosenKey() async {
+        var drafts: [AddServerDraft] = []
+        let flow = makeFlow(record: { request in
+            if case let .addRestoreTarget(draft) = request { drafts.append(draft) }
+        })
+        flow.identityFile = "/Users/me/.ssh/deploy_key"
+        #expect(flow.authenticationSummary.contains("/Users/me/.ssh/deploy_key"))
+
+        await flow.scan()
+        await flow.confirmHostKey()
+        #expect(drafts.first?.identityFile == "/Users/me/.ssh/deploy_key")
+    }
+
+    @Test("no key means the draft names none")
+    func sendsNoKeyWhenNoneChosen() async {
+        var drafts: [AddServerDraft] = []
+        let flow = makeFlow(record: { request in
+            if case let .addRestoreTarget(draft) = request { drafts.append(draft) }
+        })
+        await flow.scan()
+        await flow.confirmHostKey()
+        #expect(drafts.first?.identityFile == nil)
+    }
+}

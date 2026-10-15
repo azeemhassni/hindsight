@@ -29,15 +29,23 @@ public struct SSHConfiguration: Sendable {
 
     public func stanza(for destination: SSHDestination) throws -> String {
         let controlPath = try paths.controlPath(forToken: destination.controlToken)
+        // A key Hindsight chose is pinned: a backup job must authenticate with
+        // exactly the key it was configured with, so the agent and the user's
+        // own defaults are shut out. A machine with no key of ours is the
+        // opposite case — it already trusts something, and the only way to
+        // reach it is to let ssh resolve that the way it normally would.
+        let identity: [(String, String)] = destination.identityFile.map { file in
+            [
+                ("IdentityFile", file),
+                ("IdentitiesOnly", "yes"),
+                ("IdentityAgent", "none"),
+            ]
+        } ?? []
         let options: [(String, String)] = [
             ("HostName", destination.host),
             ("Port", String(destination.port)),
             ("User", destination.user),
-            ("IdentityFile", destination.identityFile),
-            // Never offer keys from the agent or the user's defaults: a backup
-            // job must authenticate with exactly the key it was configured with.
-            ("IdentitiesOnly", "yes"),
-            ("IdentityAgent", "none"),
+        ] + identity + [
             ("UserKnownHostsFile", paths.knownHostsFile.path),
             ("GlobalKnownHostsFile", "/dev/null"),
             ("StrictHostKeyChecking", "yes"),
