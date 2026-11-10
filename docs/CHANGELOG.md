@@ -291,7 +291,7 @@ to reach for them.
 
 ## Signed, installed, and the faults that only showed then
 
-Signed with the Developer ID for team `SM26HBBKRL`, hardened runtime, installed
+Signed with a Developer ID, hardened runtime, installed
 in `/Applications`. The app registers the agent with `SMAppService`, launchd
 keeps it alive, each end pins the other by code signature, and a backup of the
 local test container lands in the repository chosen during onboarding. That was

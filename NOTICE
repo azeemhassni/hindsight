@@ -1,0 +1,33 @@
+Hindsight
+Copyright 2026 Azeem Hassni
+
+This product includes software developed as part of the Hindsight project.
+
+--------------------------------------------------------------------------
+Bundled third-party software
+--------------------------------------------------------------------------
+
+Hindsight does not vendor third-party source. It downloads two upstream
+binaries at build time (`make vendor`), verifies each against a digest pinned
+in `vendor/checksums.txt`, and embeds them in the application bundle. Neither
+is modified.
+
+restic — https://github.com/restic/restic
+  Copyright (c) 2014, Alexander Neumann <alexander@bumpern.de>
+  BSD 2-Clause "Simplified" License.
+  Provides the repository format: content-defined chunking, deduplication,
+  encryption and integrity verification. Hindsight invents none of these.
+
+rest-server — https://github.com/restic/rest-server
+  Copyright (c) 2017, Alexander Neumann <alexander@bumpern.de>
+  BSD 2-Clause "Simplified" License.
+  Serves a repository over a loopback port in append-only mode so a server
+  being backed up can write to it without being able to rewrite its history.
+
+GRDB.swift — https://github.com/groue/GRDB.swift
+  Copyright (c) 2015-2026 Gwendal Roué
+  MIT License. Resolved as a Swift package dependency.
+
+The full text of each licence travels with the upstream project. Run
+`make vendor` to fetch the binaries; the script prints the versions and
+digests it verified.

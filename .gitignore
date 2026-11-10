@@ -8,3 +8,4 @@ vendor/cache/
 .DS_Store
 testenv/.keys/
 App/Hindsight.xcodeproj/
+build/

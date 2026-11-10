@@ -783,7 +783,7 @@ the same thing to a signed one.
 
 ### 20.2 What a signed build proved, and what it cost
 
-Signed with a Developer ID (team `SM26HBBKRL`), installed in `/Applications`,
+Signed with a Developer ID and installed in `/Applications`,
 the whole chain runs: the app registers the agent with `SMAppService`, launchd
 keeps it alive, the two authenticate each other by code signature, and a backup
 of the local test container over ssh lands in the repository the person chose.

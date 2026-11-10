@@ -8,58 +8,110 @@ Backups are **pushed** by the server into a repository on the Mac, through a
 reverse SSH tunnel to a bundled [rest-server] running in **append-only** mode.
 A server that is compromised can add to its own history; it cannot rewrite or
 delete it. Chunking, deduplication, compression and encryption are
-[restic]'s — Hindsight invents no formats of its own.
+[restic]'s — Hindsight invents no formats of its own, so a repository stays
+readable with the `restic` binary alone and the password from your recovery
+kit, with or without this app.
 
 Databases are not copied as files: Postgres, MySQL, MariaDB, MongoDB and Redis
 are found on the host and inside Docker containers, and each gets a logical
 dump — `pg_dump`, `mysqldump` and their equivalents — run over SSH alongside
-the filesystem backup.
+the filesystem backup, stored as its own snapshot with its own history.
 
-## State
+## Status
 
-Working engine and interface, with 464 tests — most of them against real
-servers in Docker rather than against mocks. Onboarding a server, backing it
-up, reading a run's log and restoring are all done from the window. See
-`docs/PLAN.md` for what each milestone delivered and `docs/CHANGELOG.md` for
-the running log.
+Honest version, because this is backup software and the failure mode is
+finding out later.
 
-## Getting started
+**Exercised against real servers.** Backing up, scheduling, retention,
+pruning, integrity checks, database dumps, and browsing a snapshot's files.
+These run nightly against production machines and have been for weeks.
 
-```sh
-make vendor     # fetch and verify the pinned restic and rest-server binaries
-make test       # unit tests and local integration tests
-make app        # generate the Xcode project and build Hindsight.app
+**Built and unit-tested, but never run against a real machine.** Restoring onto
+a different server, loading a database dump back into a live database, and the
+replica seed image. The code paths are covered by tests, and the repository's
+own rules keep automated tests away from anything but local containers — which
+means nobody has yet watched these work on a real server. Treat them as
+unproven and verify on something you can afford to lose.
+
+**Unverified on a Mac without an Apple Developer account.** Whether a
+self-built, ad-hoc signed app can register its background agent with
+`SMAppService`. It builds and the signature verifies; what happens at
+registration has only been seen with a Developer ID. If it refuses, the window
+says so rather than failing silently — please open an issue with what it said.
+
+## Requirements
+
+- macOS 14 or later
+- Xcode 16 or later (for the Swift 6 toolchain)
+- [XcodeGen] — `brew install xcodegen`
+
+No Apple Developer account is needed to build and run it yourself.
+
+## Building
+
+```bash
+make vendor && make test && make app
 ```
 
-`make app` needs [XcodeGen] (`brew install xcodegen`). Set
-`HINDSIGHT_SIGNING_IDENTITY` to sign with your Developer ID; without it the
-build is unsigned and cannot register the background agent.
+- `make vendor` downloads restic and rest-server and verifies each against a
+  digest pinned in `vendor/checksums.txt`. Nothing is taken on trust.
+- `make test` runs the suite. The ones that need containers skip themselves
+  when Docker is not up.
+- `make app` generates the Xcode project and builds `Hindsight.app`.
 
-### Signing and installing
+Then copy it in and launch it:
 
-`make app` signs with `Developer ID Application` for the team in
-`App/project.yml` (`SM26HBBKRL`) and enables the hardened runtime. On a machine
-without that certificate, `HINDSIGHT_UNSIGNED=1 make app` builds without
-signing — such a build cannot register the background agent, and says so.
+```bash
+cp -R ~/Library/Developer/Xcode/DerivedData/Hindsight-*/Build/Products/Release/Hindsight.app /Applications/
+open /Applications/Hindsight.app
+```
 
-Install it by copying `Hindsight.app` into `/Applications` and launching it.
-On first launch it registers the agent with `SMAppService`; macOS may ask for
-it to be allowed in Login Items, and the window says so until it is. Backups
-do not run before that.
+On first launch it registers its background agent with `SMAppService`. macOS
+may ask you to allow it in Login Items, and the window says so until you do —
+backups do not run before that.
 
-The build is **not notarised**: Gatekeeper reports `Unnotarized Developer ID`,
-which is fine for a copy built here and refused for one downloaded to another
-Mac.
+### Signing
 
-Two things worth knowing about a local install:
+`make app` signs **ad hoc** by default. That is a real signature with no
+certificate behind it: enough to run on the Mac that built it, and it needs no
+Apple Developer account. Nothing in the source names a signing team — the XPC
+requirement between app and agent is built from whatever identity signed the
+running binary, so each build pins itself to itself.
 
-- The agent is the only process that reads a secret. The app asks it to list a
-  snapshot, extract a file or assemble a recovery kit, so the window holds no
-  passwords at all.
-- Keychain items belong to the signature that created them. One stored by a
-  differently signed build — a development one, say — is refused, and
-  Hindsight says so: remove it from Keychain Access and let the agent store it
-  again from the recovery kit.
+To sign with a Developer ID instead, which you need only for a build that will
+run on a Mac other than the one that built it:
+
+```bash
+make app HINDSIGHT_TEAM_ID=ABCDE12345
+```
+
+Switching between the two needs a clean build — Xcode keeps the previous
+signature on nested bundles and the build then fails complaining that an
+embedded binary does not match its parent:
+
+```bash
+rm -rf ~/Library/Developer/Xcode/DerivedData/Hindsight-*/Build
+```
+
+**Notarisation is not provided and not wanted.** This project does not
+distribute binaries; you build it yourself, and an ad-hoc build on your own Mac
+needs no notarisation. `make notarize` exists for anyone who wants to
+distribute their own build under their own Developer ID, and needs their own
+Apple account and notarytool profile. Nobody else's identity is in this
+repository.
+
+### What a local install means
+
+- **The agent is the only process that reads a secret.** The app asks it to
+  list a snapshot, extract a file or assemble a recovery kit, so the window
+  holds no passwords at all.
+- **Keychain items belong to the signature that created them.** One stored by a
+  differently signed build is refused, and Hindsight says so: remove it from
+  Keychain Access and let the agent store it again from the recovery kit. This
+  bites when you switch between an ad-hoc and a Developer ID build.
+- **Export the recovery kit, and keep it somewhere other than the repository.**
+  It holds the password without which the backups are unreadable. The app will
+  nag you until you have saved one.
 
 ## Testing
 
@@ -79,17 +131,19 @@ there is a test that proves the guard refuses everything else.
 
 ## Documentation
 
-- `docs/ARCHITECTURE.md` — how it works and why
-- `docs/PLAN.md` — milestones and their acceptance criteria
-- `docs/DECISIONS.md` — decisions taken, and the open questions
-- `docs/CHANGELOG.md` — what each milestone added
-- `CLAUDE.md` — the working rules for this repository
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how it works and why
+- [docs/DECISIONS.md](docs/DECISIONS.md) — decisions taken and the reasoning
+- [docs/CHANGELOG.md](docs/CHANGELOG.md) — what changed, and what it cost
+- [docs/PLAN.md](docs/PLAN.md) — the milestones it was built against
+- [CONTRIBUTING.md](CONTRIBUTING.md) — how to work on it
+- [SECURITY.md](SECURITY.md) — reporting a vulnerability
 
-## Licences
+## Licence
 
-Hindsight bundles [restic] 0.19.1 and [rest-server] 0.14.0, both BSD-2-Clause,
-downloaded at build time and verified against digests pinned in
-`vendor/checksums.txt`.
+Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+Hindsight bundles [restic] and [rest-server], both BSD-2-Clause, downloaded at
+build time and verified against digests pinned in `vendor/checksums.txt`.
 
 [restic]: https://restic.net
 [rest-server]: https://github.com/restic/rest-server

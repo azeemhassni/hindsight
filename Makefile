@@ -20,11 +20,16 @@ test-integration:
 		HINDSIGHT_ALLOW_DESTRUCTIVE_TESTS=1 HINDSIGHT_REQUIRE_TEST_ENV=1 $(SWIFT) test; \
 		status=$$?; ./scripts/testenv.sh down; exit $$status
 
-# Builds Hindsight.app, signed with the Developer ID identity named in
-# App/project.yml. `HINDSIGHT_UNSIGNED=1` builds without signing, which is the
-# only option on a machine without the certificate — such a build cannot
-# register the LaunchAgent, and says so.
-HINDSIGHT_TEAM_ID ?= SM26HBBKRL
+# Builds Hindsight.app.
+#
+# Signed ad hoc by default, which needs no Apple Developer account and is what
+# building it yourself gets you. To sign with a Developer ID instead — needed
+# only for a build that will run on a Mac other than the one that built it:
+#
+#     make app HINDSIGHT_TEAM_ID=ABCDE12345
+#
+# `HINDSIGHT_UNSIGNED=1` skips signing altogether. Prefer the ad-hoc default:
+# an unsigned bundle cannot register the background agent at all.
 app: vendor
 	@command -v xcodegen >/dev/null 2>&1 || { \
 		echo "xcodegen is needed to generate the app project: brew install xcodegen"; \
@@ -33,33 +38,36 @@ app: vendor
 	cd App && xcodegen generate
 	cd App && xcodebuild -project Hindsight.xcodeproj -scheme Hindsight \
 		-configuration $(CONFIGURATION) -destination 'platform=macOS' \
-		$(if $(HINDSIGHT_UNSIGNED),CODE_SIGNING_ALLOWED=NO,DEVELOPMENT_TEAM=$(HINDSIGHT_TEAM_ID)) \
+		$(if $(HINDSIGHT_UNSIGNED),CODE_SIGNING_ALLOWED=NO,) \
+		$(if $(HINDSIGHT_TEAM_ID),DEVELOPMENT_TEAM=$(HINDSIGHT_TEAM_ID) HINDSIGHT_SIGN_IDENTITY="Developer ID Application",) \
 		build
 
 # Submits the signed app to Apple, waits for the result, and staples the ticket
 # to the bundle so it is accepted without a network round trip.
 #
-# Credentials come from a notarytool keychain profile. Any profile for this
-# Apple account works, so an existing one is reused rather than asking for the
-# password again; set HINDSIGHT_NOTARY_PROFILE to choose. A new one is made
-# with:
+# Only for distributing a build to other people's Macs. Building Hindsight for
+# yourself needs none of this: run `make app` and the ad-hoc signature is
+# enough.
+#
+# Needs an Apple Developer account, a Developer ID certificate, and a
+# notarytool keychain profile of your own:
 #
 #     xcrun notarytool store-credentials hindsight \
-#       --apple-id <you@example.com> --team-id $(HINDSIGHT_TEAM_ID) \
+#       --apple-id <you@example.com> --team-id <YOUR_TEAM_ID> \
 #       --password <app-specific-password>
-NOTARY_PROFILE_CANDIDATES ?= hindsight scribe-notary
+#
+# Then: make notarize HINDSIGHT_TEAM_ID=<YOUR_TEAM_ID>
+HINDSIGHT_NOTARY_PROFILE ?= hindsight
 
 notarize: app
 	@set -eu; \
+	[ -n "$(HINDSIGHT_TEAM_ID)" ] || { \
+		echo "notarising needs a Developer ID: make notarize HINDSIGHT_TEAM_ID=<YOUR_TEAM_ID>"; \
+		exit 1; \
+	}; \
 	profile="$(HINDSIGHT_NOTARY_PROFILE)"; \
-	if [ -z "$$profile" ]; then \
-		for candidate in $(NOTARY_PROFILE_CANDIDATES); do \
-			if xcrun notarytool history --keychain-profile "$$candidate" \
-				>/dev/null 2>&1; then profile="$$candidate"; break; fi; \
-		done; \
-	fi; \
-	[ -n "$$profile" ] || { \
-		echo "no notarytool keychain profile found; see the comment above this target"; \
+	xcrun notarytool history --keychain-profile "$$profile" >/dev/null 2>&1 || { \
+		echo "no notarytool keychain profile named $$profile; see the comment above this target"; \
 		exit 1; \
 	}; \
 	app="$$(cd App && xcodebuild -project Hindsight.xcodeproj -scheme Hindsight \

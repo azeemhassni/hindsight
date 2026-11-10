@@ -1,16 +1,15 @@
 # Decisions
 
-Running list. Resolved items stay for the record; open items are what I need
-from you, batched for the end of the project rather than blocking progress.
+Why things are the way they are. Each entry is a decision that was made once
+and would otherwise be re-litigated, with the reasoning that settled it. Most
+were settled by measuring something rather than by argument.
 
-## Open — for you
+Still open, for anyone who wants to pick one up:
 
-| # | Topic | What I need | What I am doing meanwhile |
-|---|---|---|---|
-| 1 | ~~Signing identity~~ | Done. Team `SM26HBBKRL`, signed with `Developer ID Application: MUHAMMAD AZEEM`. The agent registers with `SMAppService` and both ends pin each other by signature. | Remaining: notarisation, which is a submission to Apple and your call (#8). |
-| 8 | ~~Notarisation~~ | Done. Submitted with the notarytool profile already on this Mac (`scribe-notary`, the same Apple account), accepted, stapled. Gatekeeper reports `Notarized Developer ID`. | — |
-| 6 | Notifications | Whether failures should also mail or push somewhere, or stay local notifications only. | Not implemented yet. |
-| 7 | ~~Wiring order~~ | Done. Everything in Architecture §19 is wired; what remains unproven is listed there. | — |
+| # | Topic | The question |
+|---|---|---|
+| 6 | Notifications | Whether a failed backup should also mail or push somewhere, or stay a local notification. Not implemented. |
+| 9 | Signing identity for a self-built app | Whether an ad-hoc signed build can register its agent with `SMAppService` on a Mac with no Apple Developer account. It builds and verifies; registration has only been observed with a Developer ID. |
 
 ## Resolved
 
@@ -50,6 +49,7 @@ from you, batched for the end of the project rather than blocking progress.
 | R33 | The agent re-checks the restore confirmation | The typed hostname travels with the restore command and is verified in the agent, not only in the app. The app is a client; a client's checks are a convenience, and the process that writes to a server is the one that must be sure. | 2026-10-04 |
 | R34 | Settings save sparsely | An update carries only changed fields. A form that sent everything it displayed would reset whatever had been changed elsewhere since it opened. | 2026-10-04 |
 | R54 | Coolify support is removed | Hindsight backs up and restores a Linux box. Coolify's resource tree, its API client, per-resource backup and restore, and the instance backup are gone, along with the `coolify*` catalog tables and the zero-downtime mode that only existed to explain why Coolify could not have one. What is kept is the part that earns its place: databases are discovered by container image and host port and dumped with `pg_dump`/`mysqldump` over SSH, which covers a Coolify-managed database without knowing anything about Coolify. Removed rather than left half-working — a resource tree that could not be verified against an install, and a per-resource restore never exercised end to end, are worse than their absence. | 2026-10-12 |
+| R55 | Builds are signed ad hoc, and name no team | Nobody building this has the certificate anybody else built it with, so the default has to be the one that works with no Apple Developer account. Nothing in the source names a signing team: the XPC requirement between app and agent is built from whatever identity signed the running binary, so each build pins itself to itself and a Developer ID build loses nothing. Notarisation is left to whoever wants to distribute a build of their own. | 2026-11-11 |
 | R53 | A bundled binary is verified by the bundle's seal, not by its digest | Notarisation requires every Mach-O inside the app to be signed, and signing rewrites the file, so the digest published upstream can never match the copy that ships. Inside a sealed bundle macOS checks the signature before the code runs — a stronger guarantee than a hash compared against a constant compiled into the process doing the comparing. Outside a bundle, including every binary that travels to a server, the pin stands. | 2026-10-05 |
 | R54 | The icon is a rear-view mirror | The name is the picture: hindsight is looking back at where you have been. Inside the glass, racks recede toward a vanishing point, the nearest one lit. A circular arrow around a server — the first attempt — is what every other backup app ships. Drawn by `scripts/make-icon.swift` so it can be changed in one place and re-rendered at every size, and simplified below 64 points where three bars and their status lights turn into a smudge. | 2026-10-05 |
 | R52 | Wrapping text carries a line limit | `.fixedSize(horizontal: false, vertical: true)` has no upper bound on height: asked to measure its minimum, SwiftUI proposes a near-zero width and the text becomes a column one word wide, two thousand points tall. That became the window's minimum height, which is why it opened taller than the screen and could not be resized. | 2026-10-04 |

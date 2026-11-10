@@ -12,13 +12,32 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    # The team identifier is not a secret — it is readable in any signed binary
-    # — and both the keychain access group and the XPC requirement embed it, so
-    # it is checked in rather than passed through the environment.
-    DEVELOPMENT_TEAM: SM26HBBKRL
+    # Signed ad hoc unless a signing identity is given. Nobody building this
+    # has the identity anybody else built it with, so the default has to be
+    # the one that works on a Mac with no Apple Developer account: an ad-hoc
+    # signature is a real signature with no certificate behind it, which is
+    # enough to run locally.
+    #
+    # `make app HINDSIGHT_TEAM_ID=ABCDE12345` overrides both of these to sign
+    # with a Developer ID, which is what a build meant to leave your own Mac
+    # needs. Nothing in the source names a team: the XPC peer requirement is
+    # built from whatever identity signed the running binary, so each build
+    # pins itself.
+    # The identity goes through a setting of our own so the Makefile can change
+    # it without the value ever reaching xcodebuild's command line. A command
+    # line setting applies to every project in the build, including the one
+    # SwiftPM generates for GRDB, and overriding that one's signing makes it
+    # refuse the build.
+    HINDSIGHT_SIGN_IDENTITY: "-"
+    CODE_SIGN_IDENTITY: "$(HINDSIGHT_SIGN_IDENTITY)"
+    # Explicitly empty, not merely absent: with a team unset but not cleared,
+    # Xcode refuses the build asking for one to be selected.
+    DEVELOPMENT_TEAM: ""
+    PROVISIONING_PROFILE_SPECIFIER: ""
     CODE_SIGN_STYLE: Manual
     ENABLE_HARDENED_RUNTIME: YES
-    # Notarisation refuses a signature without a secure timestamp.
+    # Notarisation refuses a signature without a secure timestamp. Harmless on
+    # an ad-hoc build, which is never notarised.
     OTHER_CODE_SIGN_FLAGS: "--timestamp"
     # `get-task-allow` is what lets a debugger attach, and notarisation refuses
     # a Developer ID build that carries it.
@@ -59,7 +78,6 @@ targets:
         INFOPLIST_FILE: Hindsight/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_ENTITLEMENTS: Hindsight/Hindsight.entitlements
-        CODE_SIGN_IDENTITY: "Developer ID Application"
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
     # Verifies the pinned digests before every build; a mismatch fails here
     # rather than at the moment a backup needs the binary.
@@ -114,5 +132,4 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: app.hindsight.agent
         INFOPLIST_FILE: Agent/Info.plist
         CODE_SIGN_ENTITLEMENTS: Agent/Agent.entitlements
-        CODE_SIGN_IDENTITY: "Developer ID Application"
         SKIP_INSTALL: YES
