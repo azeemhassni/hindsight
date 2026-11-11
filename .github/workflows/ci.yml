@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: swift --version
+
+      # Downloads restic and rest-server and checks each against a digest
+      # pinned in vendor/checksums.txt. A mismatch fails the build rather than
+      # carrying on with an artifact nobody vetted.
+      - name: Vendor pinned binaries
+        run: make vendor
+
+      - name: Build
+        run: swift build
+
+      # The suites that need a container — ssh, Postgres, MySQL, Redis — skip
+      # themselves when the environment is not up, which it is not here. What
+      # runs is everything else, including the suites that drive the real
+      # restic binary against real repositories on disk.
+      - name: Test
+        run: swift test

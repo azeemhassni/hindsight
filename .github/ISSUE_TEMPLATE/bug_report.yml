@@ -1,0 +1,61 @@
+name: Bug report
+description: Something did not work, or worked and should not have
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If this is a security issue — anything that could expose a secret,
+        destroy backup history, or write somewhere it was not meant to —
+        please report it privately instead, through the Security tab.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what happened, and what you expected instead.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build
+    attributes:
+      label: How did you build it?
+      options:
+        - make app (ad-hoc signed, the default)
+        - make app HINDSIGHT_TEAM_ID=... (Developer ID)
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "15.2"
+    validations:
+      required: true
+
+  - type: input
+    id: server
+    attributes:
+      label: Server being backed up
+      description: Distribution and version, and whether its databases run in Docker.
+      placeholder: "Ubuntu 24.04, Postgres and Redis in Docker"
+
+  - type: textarea
+    id: log
+    attributes:
+      label: The run's log
+      description: >
+        Logs tab, pick the run that failed, copy it in full. Secrets are
+        redacted before anything is written to a log, but do look it over.
+      render: text
+
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: Before submitting
+      options:
+        - label: I am not reporting something that could expose a secret or destroy data (those go through the Security tab)
+          required: true

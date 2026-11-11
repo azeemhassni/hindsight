@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/azeemhassni/hindsight/security/advisories/new
+    about: Report privately. Anything that could expose a secret, lose or corrupt a backup, or write where it should not.

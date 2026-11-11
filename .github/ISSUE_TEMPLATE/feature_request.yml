@@ -1,0 +1,25 @@
+name: Feature request
+description: Something Hindsight should do and does not
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: >
+        The situation, not the solution. What were you trying to achieve when
+        you found this missing?
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you have it do?
+      description: If you have a shape in mind. Leave it blank if not.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What do you do instead today?
+      description: Including "nothing, I gave up" — that is useful to know.
