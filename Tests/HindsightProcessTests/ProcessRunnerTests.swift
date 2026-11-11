@@ -21,10 +21,9 @@ struct ProcessRunnerTests {
     @Test("streams lines as they are produced rather than buffering to completion")
     func streamsIncrementally() async throws {
         var arrivals: [String: ContinuousClock.Instant] = [:]
-        let start = ContinuousClock.now
 
         for try await event in runner.stream(
-            Command(path: "/bin/sh", arguments: ["-c", "echo first; sleep 0.5; echo second"])
+            Command(path: "/bin/sh", arguments: ["-c", "echo first; sleep 2; echo second"])
         ) {
             if case let .line(.standardOutput, line) = event {
                 arrivals[line] = ContinuousClock.now
@@ -33,9 +32,16 @@ struct ProcessRunnerTests {
 
         let first = try #require(arrivals["first"])
         let second = try #require(arrivals["second"])
-        // If output were buffered until exit, both lines would land together.
-        #expect(second - first > .milliseconds(300))
-        #expect(first - start < .milliseconds(300))
+        // The gap is the whole proof: buffered output would land as one piece,
+        // and no gap between the two lines would survive that.
+        //
+        // How long the process took to start is the machine's business, not
+        // this code's, and asserting on it made the test fail on a loaded CI
+        // runner that needed 0.67s to get `/bin/sh` going — by which time the
+        // child had written both lines into the pipe and they arrived
+        // together. The sleep is long enough that the gap outlasts any
+        // plausible start-up delay.
+        #expect(second - first > .seconds(1))
     }
 
     @Test("emits a trailing line that has no newline")
